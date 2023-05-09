@@ -105,12 +105,15 @@ async fn main() -> Result<()> {
 
     let cluster_storage_config = match opt.cluster_backend {
         ClusterStorage::Memory => ClusterStorageConfig::Memory,
+
+        #[cfg(feature = "etcd")]
         ClusterStorage::Etcd => ClusterStorageConfig::Etcd(
             opt.etcd_urls
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .collect(),
         ),
+        #[cfg(feature = "sled")]
         ClusterStorage::Sled => {
             if opt.sled_dir.is_empty() {
                 ClusterStorageConfig::Sled(None)

@@ -54,13 +54,7 @@ mimalloc = { version = "0.1", default-features = false, optional = true }
 num_cpus = "1.13.0"
 parking_lot = "0.12"
 tempfile = "3"
-tokio = { version = "1.0", features = [
-    "macros",
-    "rt",
-    "rt-multi-thread",
-    "parking_lot",
-    "signal",
-] }
+tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { workspace = true }
 tracing = "0.1.36"

@@ -762,6 +762,7 @@ async fn with_lock<Out, F: Future<Output = Out>>(mut lock: Box<dyn Lock>, op: F)
 }
 
 #[cfg(test)]
+#[cfg(feature = "sled")]
 mod test {
     use crate::cluster::kv::KeyValueState;
     use crate::cluster::storage::sled::SledClient;

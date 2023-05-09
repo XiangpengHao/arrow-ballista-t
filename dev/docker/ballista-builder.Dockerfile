@@ -24,8 +24,9 @@ ENV RUST_BACKTRACE=full
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
+    curl -sL https://deb.nodesource.com/setup_lts.x | bash -  && \
     apt-get -y install libssl-dev openssl zlib1g zlib1g-dev libpq-dev cmake protobuf-compiler netcat curl unzip \
-    nodejs npm && \
+    nodejs && \
     npm install -g yarn
 
 # create build user with same UID as 

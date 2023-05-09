@@ -13,3 +13,4 @@ target/
 !target/release/ballista-executor
 !target/release/ballista-cli
 !target/release/tpch
+.cargo/config.toml

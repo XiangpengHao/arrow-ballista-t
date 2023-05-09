@@ -34,6 +34,7 @@ tonic-build = { version = "0.9", default-features = false, features = [
     "prost",
 ] }
 tokio = { version = "1.0", features = ["full"] }
+futures = "0.3"
 
 # cargo build --profile release-lto
 [profile.release-lto]

@@ -23,6 +23,7 @@ use ballista::prelude::{
     BALLISTA_JOB_NAME,
 };
 use datafusion::arrow::array::*;
+use datafusion::arrow::datatypes::SchemaBuilder;
 use datafusion::arrow::util::display::array_value_to_string;
 use datafusion::datasource::file_format::csv::DEFAULT_CSV_EXTENSION;
 use datafusion::datasource::file_format::parquet::DEFAULT_PARQUET_EXTENSION;
@@ -562,6 +563,13 @@ fn get_query_sql_by_path(query: usize, mut sql_path: String) -> Result<String> {
     }
 }
 
+/// The `.tbl` file contains a trailing column
+pub fn get_tbl_tpch_table_schema(table: &str) -> Schema {
+    let mut schema = SchemaBuilder::from(get_schema(table).fields);
+    schema.push(Field::new("__placeholder", DataType::Utf8, false));
+    schema.finish()
+}
+
 async fn register_tables(
     path: &str,
     file_format: &str,
@@ -573,7 +581,7 @@ async fn register_tables(
             // dbgen creates .tbl ('|' delimited) files without header
             "tbl" => {
                 let path = find_path(path, table, "tbl")?;
-                let schema = get_schema(table);
+                let schema = get_tbl_tpch_table_schema(table);
                 let options = CsvReadOptions::new()
                     .schema(&schema)
                     .delimiter(b'|')

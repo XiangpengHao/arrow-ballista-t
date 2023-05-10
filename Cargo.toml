@@ -16,7 +16,8 @@
 # under the License.
 
 [workspace]
-members = ["ballista-cli", "ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "benchmarks", "examples"]
+exclude = ["ballista-cli", "examples"]
+members = ["ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "benchmarks"]
 
 [workspace.dependencies]
 arrow = { version = "38.0.0" }
@@ -24,9 +25,8 @@ arrow-flight = { version = "38.0.0", features = ["flight-sql-experimental"] }
 configure_me = { version = "0.4.0" }
 configure_me_codegen = { version = "0.4.4" }
 datafusion = "24.0.0"
-datafusion-cli = "24.0.0"
 datafusion-proto = "24.0.0"
-object_store = "0.5.4"
+object_store = { version = "0.5.6", default-features = false }
 sqlparser = "0.33.0"
 tonic = { version = "0.9" }
 tonic-build = { version = "0.9", default-features = false, features = [

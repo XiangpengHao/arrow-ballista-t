@@ -41,14 +41,12 @@ anyhow = "1"
 arrow = { workspace = true }
 arrow-flight = { workspace = true }
 async-trait = "0.1.41"
-ballista-core = { path = "../core", version = "0.11.0", features = ["s3"] }
-chrono = { version = "0.4", default-features = false }
+ballista-core = { path = "../core", version = "0.11.0" }
 configure_me = { workspace = true }
 dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 futures = { workspace = true }
-hyper = "0.14.4"
 log = "0.4"
 mimalloc = { version = "0.1", default-features = false, optional = true }
 num_cpus = "1.13.0"
@@ -57,7 +55,6 @@ tempfile = "3"
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { workspace = true }
-tracing = "0.1.36"
 tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.15", features = [
     "fmt",

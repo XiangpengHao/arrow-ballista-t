@@ -23,6 +23,7 @@ set -x
 printenv
 RELEASE_FLAG=${RELEASE_FLAG:=release}
 cargo build --profile $RELEASE_FLAG "$@"
+cd ballista-cli && cargo build --profile $RELEASE_FLAG "$@" && cd ..
 
 cd ballista/scheduler/ui
 yarn install

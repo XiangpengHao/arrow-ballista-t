@@ -99,3 +99,5 @@ dev/dist
 
 # logs
 logs/
+
+ballista-cli/Cargo.lock

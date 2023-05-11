@@ -29,9 +29,6 @@ pub mod shutdown;
 pub mod terminate;
 
 mod cpu_bound_executor;
-mod standalone;
-
-pub use standalone::new_standalone_executor;
 
 use log::info;
 

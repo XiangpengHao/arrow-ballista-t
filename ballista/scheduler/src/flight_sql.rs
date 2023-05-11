@@ -722,7 +722,6 @@ impl FlightSqlService for FlightSqlServiceImpl {
         ))
     }
 
-
     async fn do_get_statement(
         &self,
         _ticket: TicketStatementQuery,

@@ -70,6 +70,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
             .set_pending_tasks_queue_size(tasks as u64);
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_tasks(&self) -> usize {
         self.pending_tasks.load(Ordering::SeqCst)
     }

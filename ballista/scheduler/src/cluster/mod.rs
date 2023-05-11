@@ -16,7 +16,6 @@
 // under the License.
 
 pub mod event;
-pub mod kv;
 pub mod memory;
 pub mod storage;
 

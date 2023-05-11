@@ -26,33 +26,27 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::{
     accept, ExecutionPlan, ExecutionPlanVisitor, Partitioning,
 };
-use datafusion::prelude::SessionContext;
-use datafusion_proto::logical_plan::AsLogicalPlan;
 use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::execution_plans::{ShuffleWriterExec, UnresolvedShuffleExec};
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
-use ballista_core::serde::protobuf::{
-    self, execution_graph_stage::StageType, FailedTask, JobStatus, ResultLost,
-    RunningJob, SuccessfulJob, TaskStatus,
-};
 use ballista_core::serde::protobuf::{job_status, FailedJob, ShuffleWritePartition};
 use ballista_core::serde::protobuf::{task_status, RunningTask};
+use ballista_core::serde::protobuf::{
+    FailedTask, JobStatus, ResultLost, RunningJob, SuccessfulJob, TaskStatus,
+};
 use ballista_core::serde::scheduler::{
     ExecutorMetadata, PartitionId, PartitionLocation, PartitionStats,
 };
-use ballista_core::serde::BallistaCodec;
-use datafusion_proto::physical_plan::AsExecutionPlan;
 
 use crate::display::print_stage_metrics;
 use crate::planner::DistributedPlanner;
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::timestamp_millis;
 pub(crate) use crate::state::execution_graph::execution_stage::{
-    ExecutionStage, FailedStage, ResolvedStage, StageOutput, SuccessfulStage, TaskInfo,
-    UnresolvedStage,
+    ExecutionStage, ResolvedStage, StageOutput, TaskInfo, UnresolvedStage,
 };
 use crate::state::task_manager::UpdatedStages;
 
@@ -103,8 +97,6 @@ mod execution_stage;
 /// publish its outputs to the `ExecutionGraph`s `output_locations` representing the final query results.
 #[derive(Clone)]
 pub struct ExecutionGraph {
-    /// Curator scheduler name. Can be `None` is `ExecutionGraph` is not currently curated by any scheduler
-    scheduler_id: Option<String>,
     /// ID for this job
     job_id: String,
     /// Job name, can be empty string
@@ -121,8 +113,6 @@ pub struct ExecutionGraph {
     end_time: u64,
     /// Map from Stage ID -> ExecutionStage
     stages: HashMap<usize, ExecutionStage>,
-    /// Total number fo output partitions
-    output_partitions: usize,
     /// Locations of this `ExecutionGraph` final output locations
     output_locations: Vec<PartitionLocation>,
     /// Task ID generator, generate unique TID in the execution graph
@@ -152,8 +142,6 @@ impl ExecutionGraph {
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
-        let output_partitions = plan.output_partitioning().partition_count();
-
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
         let builder = ExecutionStageBuilder::new();
@@ -162,7 +150,6 @@ impl ExecutionGraph {
         let started_at = timestamp_millis();
 
         Ok(Self {
-            scheduler_id: Some(scheduler_id.to_string()),
             job_id: job_id.to_string(),
             job_name: job_name.to_string(),
             session_id: session_id.to_string(),
@@ -179,7 +166,6 @@ impl ExecutionGraph {
             start_time: started_at,
             end_time: 0,
             stages,
-            output_partitions,
             output_locations: vec![],
             task_id_gen: 0,
             failed_stage_attempts: HashMap::new(),
@@ -893,11 +879,6 @@ impl ExecutionGraph {
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_millis(),
-                    // Those times will be updated when the task finish
-                    launch_time: 0,
-                    start_exec_time: 0,
-                    end_exec_time: 0,
-                    finish_time: 0,
                     task_status: task_status::Status::Running(RunningTask {
                         executor_id: executor_id.to_owned()
                     }),
@@ -1261,163 +1242,6 @@ impl ExecutionGraph {
     fn clear_stage_failure(&mut self, stage_id: usize) {
         self.failed_stage_attempts.remove(&stage_id);
     }
-
-    pub(crate) async fn decode_execution_graph<
-        T: 'static + AsLogicalPlan,
-        U: 'static + AsExecutionPlan,
-    >(
-        proto: protobuf::ExecutionGraph,
-        codec: &BallistaCodec<T, U>,
-        session_ctx: &SessionContext,
-    ) -> Result<ExecutionGraph> {
-        let mut stages: HashMap<usize, ExecutionStage> = HashMap::new();
-        for graph_stage in proto.stages {
-            let stage_type = graph_stage.stage_type.expect("Unexpected empty stage");
-
-            let execution_stage = match stage_type {
-                StageType::UnresolvedStage(stage) => {
-                    let stage: UnresolvedStage =
-                        UnresolvedStage::decode(stage, codec, session_ctx)?;
-                    (stage.stage_id, ExecutionStage::UnResolved(stage))
-                }
-                StageType::ResolvedStage(stage) => {
-                    let stage: ResolvedStage =
-                        ResolvedStage::decode(stage, codec, session_ctx)?;
-                    (stage.stage_id, ExecutionStage::Resolved(stage))
-                }
-                StageType::SuccessfulStage(stage) => {
-                    let stage: SuccessfulStage =
-                        SuccessfulStage::decode(stage, codec, session_ctx)?;
-                    (stage.stage_id, ExecutionStage::Successful(stage))
-                }
-                StageType::FailedStage(stage) => {
-                    let stage: FailedStage =
-                        FailedStage::decode(stage, codec, session_ctx)?;
-                    (stage.stage_id, ExecutionStage::Failed(stage))
-                }
-            };
-
-            stages.insert(execution_stage.0, execution_stage.1);
-        }
-
-        let output_locations: Vec<PartitionLocation> = proto
-            .output_locations
-            .into_iter()
-            .map(|loc| loc.try_into())
-            .collect::<Result<Vec<_>>>()?;
-
-        let failed_stage_attempts = proto
-            .failed_attempts
-            .into_iter()
-            .map(|attempt| {
-                (
-                    attempt.stage_id as usize,
-                    HashSet::from_iter(
-                        attempt
-                            .stage_attempt_num
-                            .into_iter()
-                            .map(|num| num as usize),
-                    ),
-                )
-            })
-            .collect();
-
-        Ok(ExecutionGraph {
-            scheduler_id: (!proto.scheduler_id.is_empty()).then_some(proto.scheduler_id),
-            job_id: proto.job_id,
-            job_name: proto.job_name,
-            session_id: proto.session_id,
-            status: proto.status.ok_or_else(|| {
-                BallistaError::Internal(
-                    "Invalid Execution Graph: missing job status".to_owned(),
-                )
-            })?,
-            queued_at: proto.queued_at,
-            start_time: proto.start_time,
-            end_time: proto.end_time,
-            stages,
-            output_partitions: proto.output_partitions as usize,
-            output_locations,
-            task_id_gen: proto.task_id_gen as usize,
-            failed_stage_attempts,
-        })
-    }
-
-    /// Running stages will not be persisted so that will not be encoded.
-    /// Running stages will be convert back to the resolved stages to be encoded and persisted
-    pub(crate) fn encode_execution_graph<
-        T: 'static + AsLogicalPlan,
-        U: 'static + AsExecutionPlan,
-    >(
-        graph: ExecutionGraph,
-        codec: &BallistaCodec<T, U>,
-    ) -> Result<protobuf::ExecutionGraph> {
-        let job_id = graph.job_id().to_owned();
-
-        let stages = graph
-            .stages
-            .into_values()
-            .map(|stage| {
-                let stage_type = match stage {
-                    ExecutionStage::UnResolved(stage) => {
-                        StageType::UnresolvedStage(UnresolvedStage::encode(stage, codec)?)
-                    }
-                    ExecutionStage::Resolved(stage) => {
-                        StageType::ResolvedStage(ResolvedStage::encode(stage, codec)?)
-                    }
-                    ExecutionStage::Running(stage) => StageType::ResolvedStage(
-                        ResolvedStage::encode(stage.to_resolved(), codec)?,
-                    ),
-                    ExecutionStage::Successful(stage) => StageType::SuccessfulStage(
-                        SuccessfulStage::encode(job_id.clone(), stage, codec)?,
-                    ),
-                    ExecutionStage::Failed(stage) => StageType::FailedStage(
-                        FailedStage::encode(job_id.clone(), stage, codec)?,
-                    ),
-                };
-                Ok(protobuf::ExecutionGraphStage {
-                    stage_type: Some(stage_type),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        let output_locations: Vec<protobuf::PartitionLocation> = graph
-            .output_locations
-            .into_iter()
-            .map(|loc| loc.try_into())
-            .collect::<Result<Vec<_>>>()?;
-
-        let failed_attempts: Vec<protobuf::StageAttempts> = graph
-            .failed_stage_attempts
-            .into_iter()
-            .map(|(stage_id, attempts)| {
-                let stage_attempt_num = attempts
-                    .into_iter()
-                    .map(|num| num as u32)
-                    .collect::<Vec<_>>();
-                protobuf::StageAttempts {
-                    stage_id: stage_id as u32,
-                    stage_attempt_num,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        Ok(protobuf::ExecutionGraph {
-            job_id: graph.job_id,
-            job_name: graph.job_name,
-            session_id: graph.session_id,
-            status: Some(graph.status),
-            queued_at: graph.queued_at,
-            start_time: graph.start_time,
-            end_time: graph.end_time,
-            stages,
-            output_partitions: graph.output_partitions as u64,
-            output_locations,
-            scheduler_id: graph.scheduler_id.unwrap_or_default(),
-            task_id_gen: graph.task_id_gen as u32,
-            failed_attempts,
-        })
-    }
 }
 
 impl Debug for ExecutionGraph {
@@ -1684,8 +1508,6 @@ mod test {
         ));
 
         let outputs = agg_graph.output_locations();
-
-        assert_eq!(outputs.len(), agg_graph.output_partitions);
 
         for location in outputs {
             assert_eq!(location.executor_meta.host, "localhost2".to_owned());

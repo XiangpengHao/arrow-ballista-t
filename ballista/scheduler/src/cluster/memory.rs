@@ -37,7 +37,7 @@ use crate::scheduler_server::{timestamp_millis, timestamp_secs, SessionBuilder};
 use crate::state::session_manager::create_datafusion_context;
 use ballista_core::serde::protobuf::job_status::Status;
 use itertools::Itertools;
-use log::warn;
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
@@ -183,6 +183,8 @@ impl ClusterState for InMemoryClusterState {
         {
             guard.task_slots.swap_remove(idx);
         }
+
+        info!("Registered executor: {:?}", spec);
 
         if reserve {
             let slots = std::mem::take(&mut spec.available_task_slots) as usize;

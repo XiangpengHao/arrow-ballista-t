@@ -18,7 +18,7 @@
 use std::env;
 use std::path::Path;
 
-use ballista::prelude::{BallistaConfig, BallistaContext, Result};
+use ballista::prelude::{BallistaConfig, BallistaContext, BallistaError, Result};
 use ballista_cli::{
     exec, print_format::PrintFormat, print_options::PrintOptions, BALLISTA_CLI_VERSION,
 };
@@ -120,13 +120,9 @@ pub async fn main() -> Result<()> {
             BallistaContext::remote(host, port, &ballista_config).await?
         }
         _ => {
-            let concurrent_tasks = if let Some(concurrent_tasks) = args.concurrent_tasks {
-                concurrent_tasks
-            } else {
-                num_cpus::get()
-            };
-            // In-process execution with Ballista Standalone
-            BallistaContext::standalone(&ballista_config, concurrent_tasks).await?
+            return Err(BallistaError::Internal(
+                "Ballista standalone mode is removed".to_owned(),
+            ));
         }
     };
 

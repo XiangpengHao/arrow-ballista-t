@@ -160,8 +160,6 @@ pub enum ClusterStorageConfig {
     Memory,
     #[cfg(feature = "etcd")]
     Etcd(Vec<String>),
-    #[cfg(feature = "sled")]
-    Sled(Option<String>),
 }
 
 /// Policy of distributing tasks to available executor slots

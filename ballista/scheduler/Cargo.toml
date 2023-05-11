@@ -34,11 +34,10 @@ name = "ballista-scheduler"
 path = "src/bin/main.rs"
 
 [features]
-default = ["sled"]
+default = []
 etcd = ["etcd-client"]
 flight-sql = []
 prometheus-metrics = ["prometheus", "once_cell"]
-sled = ["sled_package", "tokio-stream"]
 
 
 [dependencies]
@@ -68,7 +67,6 @@ prometheus = { version = "0.13", features = ["process"], optional = true }
 prost = "0.11"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
-sled_package = { package = "sled", version = "0.34", optional = true }
 tokio = { workspace = true }
 tokio-stream = { version = "0.1", features = ["net"], optional = true }
 tonic = { workspace = true }

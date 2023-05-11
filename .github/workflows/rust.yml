@@ -209,7 +209,7 @@ jobs:
           export PARQUET_TEST_DATA=$(pwd)/parquet-testing/data
           cd ballista
           # snmalloc requires cmake so build without default features
-          cargo test --no-default-features --features sled
+          cargo test --no-default-features 
           # Ensure also compiles in standalone mode
           cargo test --no-default-features --features standalone
         env:

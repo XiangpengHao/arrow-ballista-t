@@ -113,14 +113,6 @@ async fn main() -> Result<()> {
                 .map(|s| s.to_string())
                 .collect(),
         ),
-        #[cfg(feature = "sled")]
-        ClusterStorage::Sled => {
-            if opt.sled_dir.is_empty() {
-                ClusterStorageConfig::Sled(None)
-            } else {
-                ClusterStorageConfig::Sled(Some(opt.sled_dir))
-            }
-        }
     };
 
     let config = SchedulerConfig {

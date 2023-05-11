@@ -17,8 +17,6 @@
 
 #[cfg(feature = "etcd")]
 pub mod etcd;
-#[cfg(feature = "sled")]
-pub mod sled;
 
 use async_trait::async_trait;
 use ballista_core::error::Result;

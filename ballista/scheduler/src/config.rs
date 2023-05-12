@@ -62,7 +62,7 @@ impl Default for SchedulerConfig {
             namespace: String::default(),
             external_host: "localhost".to_string(),
             bind_port: 50050,
-            scheduling_policy: TaskSchedulingPolicy::PullStaged,
+            scheduling_policy: TaskSchedulingPolicy::PushStaged,
             event_loop_buffer_size: 10000,
             task_distribution: TaskDistribution::Bias,
             finished_job_data_clean_up_interval_seconds: 300,

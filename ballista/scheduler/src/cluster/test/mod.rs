@@ -53,23 +53,21 @@ impl<S: ClusterState> ClusterStateTest<S> {
         executor_id: &str,
         task_slots: u32,
     ) -> Result<Self> {
-        self.state
-            .register_executor(
-                ExecutorMetadata {
-                    id: executor_id.to_string(),
-                    host: executor_id.to_string(),
-                    port: 0,
-                    grpc_port: 0,
-                    specification: ExecutorSpecification { task_slots },
-                },
-                ExecutorData {
-                    executor_id: executor_id.to_string(),
-                    total_task_slots: task_slots,
-                    available_task_slots: task_slots,
-                },
-                false,
-            )
-            .await?;
+        self.state.register_executor(
+            ExecutorMetadata {
+                id: executor_id.to_string(),
+                host: executor_id.to_string(),
+                port: 0,
+                grpc_port: 0,
+                specification: ExecutorSpecification { task_slots },
+            },
+            ExecutorData {
+                executor_id: executor_id.to_string(),
+                total_task_slots: task_slots,
+                available_task_slots: task_slots,
+            },
+            false,
+        )?;
 
         self.total_task_slots += task_slots;
 
@@ -77,7 +75,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
     }
 
     pub async fn remove_executor(self, executor_id: &str) -> Result<Self> {
-        self.state.remove_executor(executor_id).await?;
+        self.state.remove_executor(executor_id);
 
         Ok(self)
     }
@@ -87,7 +85,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         executor_id: &str,
         task_slots: u32,
     ) -> Result<Self> {
-        let executor = self.state.get_executor_metadata(executor_id).await;
+        let executor = self.state.get_executor_metadata(executor_id);
         assert!(
             executor.is_ok(),
             "Metadata for executor {} not found in state",

@@ -22,6 +22,7 @@ use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use ballista_core::serde::protobuf;
 
+use crate::cluster::memory::InMemoryClusterState;
 use crate::cluster::ClusterState;
 use crate::config::TaskDistribution;
 
@@ -89,13 +90,13 @@ pub const EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS: u64 = 15;
 #[derive(Clone)]
 pub struct ExecutorManager {
     task_distribution: TaskDistribution,
-    cluster_state: Arc<dyn ClusterState>,
+    cluster_state: Arc<InMemoryClusterState>,
     clients: ExecutorClients,
 }
 
 impl ExecutorManager {
     pub(crate) fn new(
-        cluster_state: Arc<dyn ClusterState>,
+        cluster_state: Arc<InMemoryClusterState>,
         task_distribution: TaskDistribution,
     ) -> Self {
         Self {
@@ -277,11 +278,12 @@ impl ExecutorManager {
         &self,
         executor_id: &str,
     ) -> Result<ExecutorMetadata> {
-        self.cluster_state.get_executor_metadata(executor_id).await
+        self.cluster_state.get_executor_metadata(executor_id)
     }
 
     pub async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
-        self.cluster_state.save_executor_metadata(metadata).await
+        self.cluster_state.save_executor_metadata(metadata);
+        Ok(())
     }
 
     /// Register the executor with the scheduler. This will save the executor metadata and the
@@ -298,7 +300,7 @@ impl ExecutorManager {
         specification: ExecutorData,
         reserve: bool,
     ) -> Result<Vec<ExecutorReservation>> {
-        debug!(
+        info!(
             "registering executor {} with {} task slots",
             metadata.id, specification.total_task_slots
         );
@@ -306,9 +308,11 @@ impl ExecutorManager {
         self.test_scheduler_connectivity(&metadata).await?;
 
         if !reserve {
-            self.cluster_state
-                .register_executor(metadata, specification.clone(), reserve)
-                .await?;
+            self.cluster_state.register_executor(
+                metadata,
+                specification.clone(),
+                reserve,
+            )?;
 
             Ok(vec![])
         } else {
@@ -322,8 +326,7 @@ impl ExecutorManager {
             specification.available_task_slots = 0;
 
             self.cluster_state
-                .register_executor(metadata, specification, reserve)
-                .await?;
+                .register_executor(metadata, specification, reserve)?;
 
             Ok(reservations)
         }
@@ -336,7 +339,8 @@ impl ExecutorManager {
         reason: Option<String>,
     ) -> Result<()> {
         info!("Removing executor {}: {:?}", executor_id, reason);
-        self.cluster_state.remove_executor(executor_id).await
+        self.cluster_state.remove_executor(executor_id);
+        Ok(())
     }
 
     #[cfg(not(test))]
@@ -370,8 +374,7 @@ impl ExecutorManager {
         heartbeat: ExecutorHeartbeat,
     ) -> Result<()> {
         self.cluster_state
-            .save_executor_heartbeat(heartbeat.clone())
-            .await?;
+            .save_executor_heartbeat(heartbeat.clone());
 
         Ok(())
     }

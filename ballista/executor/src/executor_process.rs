@@ -17,6 +17,7 @@
 
 //! Ballista Executor Process
 
+use std::fmt::Debug;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -88,11 +89,42 @@ pub struct ExecutorProcessConfig {
     pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
 }
 
+impl Debug for ExecutorProcessConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutorProcessConfig")
+            .field("bind_host", &self.bind_host)
+            .field("external_host", &self.external_host)
+            .field("port", &self.port)
+            .field("grpc_port", &self.grpc_port)
+            .field("scheduler_host", &self.scheduler_host)
+            .field("scheduler_port", &self.scheduler_port)
+            .field(
+                "scheduler_connect_timeout_seconds",
+                &self.scheduler_connect_timeout_seconds,
+            )
+            .field("concurrent_tasks", &self.concurrent_tasks)
+            .field("task_scheduling_policy", &self.task_scheduling_policy)
+            .field("log_dir", &self.log_dir)
+            .field("work_dir", &self.work_dir)
+            .field("special_mod_log_level", &self.special_mod_log_level)
+            .field("print_thread_info", &self.print_thread_info)
+            .field("log_file_name_prefix", &self.log_file_name_prefix)
+            .field("log_rotation_policy", &self.log_rotation_policy)
+            .field("job_data_ttl_seconds", &self.job_data_ttl_seconds)
+            .field(
+                "job_data_clean_up_interval_seconds",
+                &self.job_data_clean_up_interval_seconds,
+            )
+            .finish()
+    }
+}
+
 pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     let rust_log = env::var(EnvFilter::DEFAULT_ENV);
-    let log_filter = EnvFilter::new(rust_log.unwrap_or(opt.special_mod_log_level));
+    let log_filter =
+        EnvFilter::new(rust_log.unwrap_or(opt.special_mod_log_level.clone()));
     // File layer
-    if let Some(log_dir) = opt.log_dir {
+    if let Some(ref log_dir) = opt.log_dir {
         let log_file = match opt.log_rotation_policy {
             LogRotationPolicy::Minutely => {
                 tracing_appender::rolling::minutely(log_dir, &opt.log_file_name_prefix)
@@ -125,6 +157,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             .init();
     }
 
+    info!("Executor config: {:?}", opt);
     let addr = format!("{}:{}", opt.bind_host, opt.port);
     let addr = addr
         .parse()
@@ -149,7 +182,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         opt.concurrent_tasks
     };
 
-    info!("Running with config:");
     info!("work_dir: {}", work_dir);
     info!("concurrent_tasks: {}", concurrent_tasks);
 

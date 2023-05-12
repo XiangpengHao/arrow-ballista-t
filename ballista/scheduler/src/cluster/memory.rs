@@ -37,7 +37,7 @@ use crate::scheduler_server::{timestamp_millis, timestamp_secs, SessionBuilder};
 use crate::state::session_manager::create_datafusion_context;
 use ballista_core::serde::protobuf::job_status::Status;
 use itertools::Itertools;
-use log::{info, warn};
+use log::warn;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
@@ -154,7 +154,7 @@ impl ClusterState for InMemoryClusterState {
         Ok(())
     }
 
-    async fn register_executor(
+    fn register_executor(
         &self,
         metadata: ExecutorMetadata,
         mut spec: ExecutorData,
@@ -162,7 +162,7 @@ impl ClusterState for InMemoryClusterState {
     ) -> Result<Vec<ExecutorReservation>> {
         let executor_id = metadata.id.clone();
 
-        self.save_executor_metadata(metadata).await?;
+        self.save_executor_metadata(metadata);
         self.save_executor_heartbeat(ExecutorHeartbeat {
             executor_id: executor_id.clone(),
             timestamp: timestamp_secs(),
@@ -170,8 +170,7 @@ impl ClusterState for InMemoryClusterState {
             status: Some(ExecutorStatus {
                 status: Some(executor_status::Status::Active(String::default())),
             }),
-        })
-        .await?;
+        });
 
         let mut guard = self.task_slots.lock();
 
@@ -183,8 +182,6 @@ impl ClusterState for InMemoryClusterState {
         {
             guard.task_slots.swap_remove(idx);
         }
-
-        info!("Registered executor: {:?}", spec);
 
         if reserve {
             let slots = std::mem::take(&mut spec.available_task_slots) as usize;
@@ -208,12 +205,11 @@ impl ClusterState for InMemoryClusterState {
         }
     }
 
-    async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
+    fn save_executor_metadata(&self, metadata: ExecutorMetadata) {
         self.executors.insert(metadata.id.clone(), metadata);
-        Ok(())
     }
 
-    async fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata> {
+    fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata> {
         self.executors
             .get(executor_id)
             .map(|pair| pair.value().clone())
@@ -224,18 +220,16 @@ impl ClusterState for InMemoryClusterState {
             })
     }
 
-    async fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat) -> Result<()> {
+    fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat) {
         let executor_id = heartbeat.executor_id.clone();
         if let Some(mut last) = self.heartbeats.get_mut(&executor_id) {
             let _ = std::mem::replace(last.deref_mut(), heartbeat);
         } else {
             self.heartbeats.insert(executor_id, heartbeat);
         }
-
-        Ok(())
     }
 
-    async fn remove_executor(&self, executor_id: &str) -> Result<()> {
+    fn remove_executor(&self, executor_id: &str) {
         {
             let mut guard = self.task_slots.lock();
 
@@ -249,8 +243,6 @@ impl ClusterState for InMemoryClusterState {
         }
 
         self.heartbeats.remove(executor_id);
-
-        Ok(())
     }
 
     fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat> {

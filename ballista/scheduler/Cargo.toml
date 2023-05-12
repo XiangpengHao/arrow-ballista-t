@@ -35,7 +35,6 @@ path = "src/bin/main.rs"
 
 [features]
 default = []
-etcd = ["etcd-client"]
 flight-sql = []
 prometheus-metrics = ["prometheus", "once_cell"]
 
@@ -51,7 +50,6 @@ configure_me = { workspace = true }
 dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
-etcd-client = { version = "0.10", optional = true }
 futures = { workspace = true }
 graphviz-rust = "0.6.1"
 http = "0.2"

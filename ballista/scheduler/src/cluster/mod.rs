@@ -17,7 +17,6 @@
 
 pub mod event;
 pub mod memory;
-pub mod storage;
 
 #[cfg(test)]
 #[allow(clippy::uninlined_format_args)]
@@ -69,13 +68,13 @@ impl parse_arg::ParseArgFromStr for ClusterStorage {
 
 #[derive(Clone)]
 pub struct BallistaCluster {
-    cluster_state: Arc<dyn ClusterState>,
+    cluster_state: Arc<InMemoryClusterState>,
     job_state: Arc<dyn JobState>,
 }
 
 impl BallistaCluster {
     pub fn new(
-        cluster_state: Arc<dyn ClusterState>,
+        cluster_state: Arc<InMemoryClusterState>,
         job_state: Arc<dyn JobState>,
     ) -> Self {
         Self {
@@ -98,23 +97,6 @@ impl BallistaCluster {
         let scheduler = config.scheduler_name();
 
         match &config.cluster_storage {
-            #[cfg(feature = "etcd")]
-            ClusterStorageConfig::Etcd(urls) => {
-                let etcd = etcd_client::Client::connect(urls.as_slice(), None)
-                    .await
-                    .map_err(|err| {
-                        BallistaError::Internal(format!(
-                            "Could not connect to etcd: {err:?}"
-                        ))
-                    })?;
-
-                Ok(Self::new_kv(
-                    EtcdClient::new(config.namespace.clone(), etcd),
-                    scheduler,
-                    default_session_builder,
-                    BallistaCodec::default(),
-                ))
-            }
             ClusterStorageConfig::Memory => Ok(BallistaCluster::new_memory(
                 scheduler,
                 default_session_builder,
@@ -122,7 +104,7 @@ impl BallistaCluster {
         }
     }
 
-    pub fn cluster_state(&self) -> Arc<dyn ClusterState> {
+    pub fn cluster_state(&self) -> Arc<InMemoryClusterState> {
         self.cluster_state.clone()
     }
 
@@ -176,7 +158,7 @@ pub trait ClusterState: Send + Sync + 'static {
     /// Register a new executor in the cluster. If `reserve` is true, then the executors task slots
     /// will be reserved and returned in the response and none of the new executors task slots will be
     /// available to other tasks.
-    async fn register_executor(
+    fn register_executor(
         &self,
         metadata: ExecutorMetadata,
         spec: ExecutorData,
@@ -184,16 +166,16 @@ pub trait ClusterState: Send + Sync + 'static {
     ) -> Result<Vec<ExecutorReservation>>;
 
     /// Save the executor metadata. This will overwrite existing metadata for the executor ID
-    async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()>;
+    fn save_executor_metadata(&self, metadata: ExecutorMetadata);
 
     /// Get executor metadata for the provided executor ID. Returns an error if the executor does not exist
-    async fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata>;
+    fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata>;
 
     /// Save the executor heartbeat
-    async fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat) -> Result<()>;
+    fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat);
 
     /// Remove the executor from the cluster
-    async fn remove_executor(&self, executor_id: &str) -> Result<()>;
+    fn remove_executor(&self, executor_id: &str);
 
     /// Return a map of the last seen heartbeat for all active executors
     fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat>;

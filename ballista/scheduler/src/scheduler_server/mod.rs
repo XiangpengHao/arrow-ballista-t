@@ -18,8 +18,8 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::event_loop::{EventLoop, EventSender};
 use ballista_core::error::Result;
-use ballista_core::event_loop::{EventLoop, EventSender};
 use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
 use ballista_core::serde::BallistaCodec;
 
@@ -43,7 +43,9 @@ use crate::state::executor_manager::{
     EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
 };
 
+#[cfg(test)]
 use crate::state::task_manager::TaskLauncher;
+
 use crate::state::SchedulerState;
 
 pub mod event;
@@ -57,7 +59,7 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     pub scheduler_name: String,
     pub start_time: u128,
     pub state: Arc<SchedulerState<T, U>>,
-    pub(crate) query_stage_event_loop: EventLoop<QueryStageSchedulerEvent>,
+    pub(crate) query_stage_event_loop: EventLoop<T, U>,
     query_stage_scheduler: Arc<QueryStageScheduler<T, U>>,
     executor_termination_grace_period: u64,
 }
@@ -98,7 +100,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         }
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new_with_task_launcher(
         scheduler_name: String,
         cluster: BallistaCluster,

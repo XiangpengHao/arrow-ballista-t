@@ -19,10 +19,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use datafusion_proto::logical_plan::AsLogicalPlan;
+use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{error, info};
 use tokio::sync::mpsc;
 
-use crate::error::{BallistaError, Result};
+use ballista_core::error::{BallistaError, Result};
+
+use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 
 #[async_trait]
 pub trait EventAction<E>: Send + Sync {
@@ -41,19 +46,19 @@ pub trait EventAction<E>: Send + Sync {
 }
 
 #[derive(Clone)]
-pub struct EventLoop<E> {
+pub struct EventLoop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
     pub name: String,
     pub buffer_size: usize,
     stopped: Arc<AtomicBool>,
-    action: Arc<dyn EventAction<E>>,
-    tx_event: Option<mpsc::Sender<E>>,
+    action: Arc<QueryStageScheduler<T, U>>,
+    tx_event: Option<mpsc::Sender<QueryStageSchedulerEvent>>,
 }
 
-impl<E: Send + 'static> EventLoop<E> {
+impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> EventLoop<T, U> {
     pub fn new(
         name: String,
         buffer_size: usize,
-        action: Arc<dyn EventAction<E>>,
+        action: Arc<QueryStageScheduler<T, U>>,
     ) -> Self {
         Self {
             name,
@@ -64,7 +69,7 @@ impl<E: Send + 'static> EventLoop<E> {
         }
     }
 
-    fn run(&self, mut rx_event: mpsc::Receiver<E>) {
+    fn run(&self, mut rx_event: mpsc::Receiver<QueryStageSchedulerEvent>) {
         assert!(
             self.tx_event.is_some(),
             "The event sender should be initialized first!"
@@ -99,7 +104,7 @@ impl<E: Send + 'static> EventLoop<E> {
         }
         self.action.on_start();
 
-        let (tx_event, rx_event) = mpsc::channel::<E>(self.buffer_size);
+        let (tx_event, rx_event) = mpsc::channel(self.buffer_size);
         self.tx_event = Some(tx_event);
         self.run(rx_event);
 
@@ -114,7 +119,7 @@ impl<E: Send + 'static> EventLoop<E> {
         }
     }
 
-    pub fn get_sender(&self) -> Result<EventSender<E>> {
+    pub fn get_sender(&self) -> Result<EventSender<QueryStageSchedulerEvent>> {
         Ok(EventSender {
             tx_event: self.tx_event.as_ref().cloned().ok_or_else(|| {
                 BallistaError::General("Event sender not exist!!!".to_string())

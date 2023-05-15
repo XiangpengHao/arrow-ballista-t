@@ -22,8 +22,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
 
+use crate::event_loop::{EventAction, EventSender};
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::event_loop::{EventAction, EventSender};
 
 use crate::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::timestamp_millis;
@@ -37,10 +37,7 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::SchedulerState;
 
-pub(crate) struct QueryStageScheduler<
-    T: 'static + AsLogicalPlan,
-    U: 'static + AsExecutionPlan,
-> {
+pub struct QueryStageScheduler<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
     state: Arc<SchedulerState<T, U>>,
     metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     pending_tasks: AtomicUsize,
@@ -399,11 +396,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 #[cfg(test)]
 mod tests {
     use crate::config::SchedulerConfig;
+    use crate::event_loop::EventAction;
     use crate::scheduler_server::event::QueryStageSchedulerEvent;
     use crate::test_utils::{await_condition, SchedulerTest, TestMetricsCollector};
     use ballista_core::config::TaskSchedulingPolicy;
     use ballista_core::error::Result;
-    use ballista_core::event_loop::EventAction;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::logical_expr::{col, sum, LogicalPlan};
     use datafusion::physical_plan::empty::EmptyExec;

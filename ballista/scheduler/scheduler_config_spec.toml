@@ -44,13 +44,6 @@ doc = "Namespace for the ballista cluster that this executor will join. Default:
 default = "std::string::String::from(\"ballista\")"
 
 [[param]]
-abbr = "e"
-name = "etcd_urls"
-type = "String"
-doc = "etcd urls for use when discovery mode is `etcd`. Default: localhost:2379"
-default = "std::string::String::from(\"localhost:2379\")"
-
-[[param]]
 name = "bind_host"
 type = "String"
 default = "std::string::String::from(\"0.0.0.0\")"

@@ -51,6 +51,9 @@ pub struct JobResponse {
     pub num_stages: usize,
     pub completed_stages: usize,
     pub percent_complete: u8,
+    pub start_time: u64,
+    pub elapsed: u64,
+    pub output_row_cnt: Option<usize>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -116,6 +119,8 @@ pub(crate) async fn get_jobs<T: AsLogicalPlan, U: AsExecutionPlan>(
         .iter()
         .map(|job| {
             let status = &job.status;
+
+            let mut output_row_cnt = None;
             let job_status = match &status.status {
                 Some(Status::Queued(_)) => "Queued".to_string(),
                 Some(Status::Running(_)) => "Running".to_string(),
@@ -128,7 +133,7 @@ pub(crate) async fn get_jobs<T: AsLogicalPlan, U: AsExecutionPlan>(
                             p.partition_stats.as_ref().map(|s| s.num_rows).unwrap_or(0)
                         })
                         .sum::<i64>();
-                    let num_rows_term = if num_rows == 1 { "row" } else { "rows" };
+                    output_row_cnt = Some(num_rows as usize);
                     let num_partitions = completed.partition_location.len();
                     let num_partitions_term = if num_partitions == 1 {
                         "partition"
@@ -136,9 +141,8 @@ pub(crate) async fn get_jobs<T: AsLogicalPlan, U: AsExecutionPlan>(
                         "partitions"
                     };
                     format!(
-                        "Completed. Produced {} {} containing {} {}. Elapsed time: {} ms.",
-                        num_partitions, num_partitions_term, num_rows, num_rows_term,
-                        job.end_time - job.start_time
+                        "Completed. Produced {} {}.",
+                        num_partitions, num_partitions_term,
                     )
                 }
                 _ => "Invalid State".to_string(),
@@ -152,9 +156,12 @@ pub(crate) async fn get_jobs<T: AsLogicalPlan, U: AsExecutionPlan>(
                 job_id: job.job_id.to_string(),
                 job_name: job.job_name.to_string(),
                 job_status,
+                start_time: job.start_time,
+                elapsed: job.end_time - job.start_time,
                 num_stages: job.num_stages,
                 completed_stages: job.completed_stages,
                 percent_complete,
+                output_row_cnt,
             }
         })
         .collect();

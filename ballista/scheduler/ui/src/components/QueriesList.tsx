@@ -55,6 +55,9 @@ export interface Query {
   job_status: string;
   num_stages: number;
   percent_complete: number;
+  start_time: number,
+  elapsed: number,
+  output_row_cnt: number,
 }
 
 export interface QueriesListProps {
@@ -229,6 +232,24 @@ const columns: Column<Query>[] = [
   {
     Header: "Number of Stages",
     accessor: "num_stages",
+  },
+  {
+    Header: "Output rows",
+    accessor: "output_row_cnt",
+  },
+  {
+    Header: "Start time",
+    accessor: (row) => {
+      const date = new Date((row as Query).start_time);
+      return date.toLocaleString();
+    },
+  },
+  {
+    Header: "Elapsed",
+    accessor: (row) => {
+      const elapsed = (row as Query).elapsed;
+      return elapsed + " ms";
+    },
   },
   {
     Header: "Progress",

@@ -124,7 +124,6 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     state: Arc<InMemoryJobState>,
     codec: BallistaCodec<T, U>,
     scheduler_id: String,
-    // Cache for active jobs curated by this scheduler
     active_job_cache: ActiveJobCache,
     launcher: Arc<dyn TaskLauncher>,
 }

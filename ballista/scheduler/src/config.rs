@@ -18,7 +18,6 @@
 
 //! Ballista scheduler specific configuration
 
-use ballista_core::config::TaskSchedulingPolicy;
 use clap::ValueEnum;
 use std::fmt;
 
@@ -32,8 +31,6 @@ pub struct SchedulerConfig {
     pub external_host: String,
     /// The bind port for the scheduler's gRPC service
     pub bind_port: u16,
-    /// The task scheduling policy for the scheduler
-    pub scheduling_policy: TaskSchedulingPolicy,
     /// The event loop buffer size. for a system of high throughput, a larger value like 1000000 is recommended
     pub event_loop_buffer_size: u32,
     /// Policy of distributing tasks to available executor slots. For a cluster with single scheduler, round-robin is recommended
@@ -60,7 +57,6 @@ impl Default for SchedulerConfig {
             namespace: String::default(),
             external_host: "localhost".to_string(),
             bind_port: 50050,
-            scheduling_policy: TaskSchedulingPolicy::PushStaged,
             event_loop_buffer_size: 10000,
             task_distribution: TaskDistribution::Bias,
             finished_job_data_clean_up_interval_seconds: 300,
@@ -78,10 +74,6 @@ impl SchedulerConfig {
         format!("{}:{}", self.external_host, self.bind_port)
     }
 
-    pub fn is_push_staged_scheduling(&self) -> bool {
-        matches!(self.scheduling_policy, TaskSchedulingPolicy::PushStaged)
-    }
-
     pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = namespace.into();
         self
@@ -94,11 +86,6 @@ impl SchedulerConfig {
 
     pub fn with_port(mut self, port: u16) -> Self {
         self.bind_port = port;
-        self
-    }
-
-    pub fn with_scheduler_policy(mut self, policy: TaskSchedulingPolicy) -> Self {
-        self.scheduling_policy = policy;
         self
     }
 

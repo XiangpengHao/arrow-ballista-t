@@ -41,7 +41,7 @@ use uuid::Uuid;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 
-use ballista_core::config::{LogRotationPolicy, TaskSchedulingPolicy};
+use ballista_core::config::LogRotationPolicy;
 use ballista_core::error::BallistaError;
 use ballista_core::serde::protobuf::executor_resource::Resource;
 use ballista_core::serde::protobuf::executor_status::Status;
@@ -58,13 +58,13 @@ use ballista_core::BALLISTA_VERSION;
 
 use crate::execution_engine::ExecutionEngine;
 use crate::executor::{Executor, TasksDrainedFuture};
+use crate::executor_server;
 use crate::executor_server::TERMINATING;
 use crate::flight_service::BallistaFlightService;
 use crate::metrics::LoggingMetricsCollector;
 use crate::shutdown::Shutdown;
 use crate::shutdown::ShutdownNotifier;
 use crate::terminate;
-use crate::{execution_loop, executor_server};
 
 pub struct ExecutorProcessConfig {
     pub bind_host: String,
@@ -75,7 +75,6 @@ pub struct ExecutorProcessConfig {
     pub scheduler_port: u16,
     pub scheduler_connect_timeout_seconds: u16,
     pub concurrent_tasks: usize,
-    pub task_scheduling_policy: TaskSchedulingPolicy,
     pub log_dir: Option<String>,
     pub work_dir: Option<String>,
     pub special_mod_log_level: String,
@@ -103,7 +102,6 @@ impl Debug for ExecutorProcessConfig {
                 &self.scheduler_connect_timeout_seconds,
             )
             .field("concurrent_tasks", &self.concurrent_tasks)
-            .field("task_scheduling_policy", &self.task_scheduling_policy)
             .field("log_dir", &self.log_dir)
             .field("work_dir", &self.work_dir)
             .field("special_mod_log_level", &self.special_mod_log_level)
@@ -265,7 +263,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
         BallistaCodec::default();
 
-    let scheduler_policy = opt.task_scheduling_policy;
     let job_data_ttl_seconds = opt.job_data_ttl_seconds;
 
     // Graceful shutdown notification
@@ -307,29 +304,19 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     // Channels used to receive stop requests from Executor grpc service.
     let (stop_send, mut stop_recv) = mpsc::channel::<bool>(10);
 
-    match scheduler_policy {
-        TaskSchedulingPolicy::PushStaged => {
-            service_handlers.push(
-                //If there is executor registration error during startup, return the error and stop early.
-                executor_server::startup(
-                    scheduler.clone(),
-                    opt.bind_host,
-                    executor.clone(),
-                    default_codec,
-                    stop_send,
-                    &shutdown_noti,
-                )
-                .await?,
-            );
-        }
-        _ => {
-            service_handlers.push(tokio::spawn(execution_loop::poll_loop(
-                scheduler.clone(),
-                executor.clone(),
-                default_codec,
-            )));
-        }
-    };
+    service_handlers.push(
+        //If there is executor registration error during startup, return the error and stop early.
+        executor_server::startup(
+            scheduler.clone(),
+            opt.bind_host,
+            executor.clone(),
+            default_codec,
+            stop_send,
+            &shutdown_noti,
+        )
+        .await?,
+    );
+
     service_handlers.push(tokio::spawn(flight_server_run(
         addr,
         shutdown_noti.subscribe_for_shutdown(),

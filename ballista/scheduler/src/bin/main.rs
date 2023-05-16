@@ -106,7 +106,6 @@ async fn main() -> Result<()> {
         namespace: opt.namespace,
         external_host: opt.external_host,
         bind_port: opt.bind_port,
-        scheduling_policy: opt.scheduler_policy,
         event_loop_buffer_size: opt.event_loop_buffer_size,
         task_distribution: opt.task_distribution,
         finished_job_data_clean_up_interval_seconds: opt

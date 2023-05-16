@@ -26,8 +26,8 @@ use ballista_core::serde::protobuf::{
     ExecuteQueryParams, ExecuteQueryResult, ExecutorHeartbeat, ExecutorStoppedParams,
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
-    PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
-    UpdateTaskStatusParams, UpdateTaskStatusResult,
+    RegisterExecutorParams, RegisterExecutorResult, UpdateTaskStatusParams,
+    UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -48,92 +48,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
 use crate::scheduler_server::SchedulerServer;
-use crate::state::executor_manager::ExecutorReservation;
 
 #[tonic::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
     for SchedulerServer<T, U>
 {
-    async fn poll_work(
-        &self,
-        request: Request<PollWorkParams>,
-    ) -> Result<Response<PollWorkResult>, Status> {
-        if self.state.config.is_push_staged_scheduling() {
-            error!("Poll work interface is not supported for push-based task scheduling");
-            return Err(tonic::Status::failed_precondition(
-                "Bad request because poll work is not supported for push-based task scheduling",
-            ));
-        }
-        let remote_addr = request.remote_addr();
-        if let PollWorkParams {
-            metadata: Some(metadata),
-            num_free_slots,
-            task_status,
-        } = request.into_inner()
-        {
-            trace!("Received poll_work request for {:?}", metadata);
-            let metadata = ExecutorMetadata {
-                id: metadata.id,
-                host: metadata
-                    .optional_host
-                    .map(|h| match h {
-                        OptionalHost::Host(host) => host,
-                    })
-                    .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
-                port: metadata.port as u16,
-                grpc_port: metadata.grpc_port as u16,
-                specification: metadata.specification.unwrap().into(),
-            };
-
-            self.state
-                .executor_manager
-                .save_executor_metadata(metadata.clone())
-                .map_err(|e| {
-                    let msg = format!("Could not save executor metadata: {e}");
-                    error!("{}", msg);
-                    Status::internal(msg)
-                })?;
-
-            self.update_task_status(&metadata.id, task_status)
-                .await
-                .map_err(|e| {
-                    let msg = format!(
-                        "Fail to update tasks status from executor {:?} due to {:?}",
-                        &metadata.id, e
-                    );
-                    error!("{}", msg);
-                    Status::internal(msg)
-                })?;
-
-            // Find `num_free_slots` next tasks when available
-            let mut next_tasks = vec![];
-            let reservations = vec![
-                ExecutorReservation::new_free(metadata.id.clone());
-                num_free_slots as usize
-            ];
-            if let Ok((mut assignments, _, _)) = self
-                .state
-                .task_manager
-                .fill_reservations(&reservations)
-                .await
-            {
-                while let Some((_, task)) = assignments.pop() {
-                    match self.state.task_manager.prepare_task_definition(task) {
-                        Ok(task_definition) => next_tasks.push(task_definition),
-                        Err(e) => {
-                            error!("Error preparing task definition: {:?}", e);
-                        }
-                    }
-                }
-            }
-
-            Ok(Response::new(PollWorkResult { tasks: next_tasks }))
-        } else {
-            warn!("Received invalid executor poll_work request");
-            Err(Status::invalid_argument("Missing metadata in request"))
-        }
-    }
-
     async fn register_executor(
         &self,
         request: Request<RegisterExecutorParams>,

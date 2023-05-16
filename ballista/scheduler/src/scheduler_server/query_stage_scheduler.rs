@@ -171,60 +171,57 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     debug!("Job {} resubmitted", job_id);
                 }
 
-                if self.state.config.is_push_staged_scheduling() {
-                    let available_tasks = self
-                        .state
-                        .task_manager
-                        .get_available_task_count(&job_id)
-                        .await?;
+                let available_tasks = self
+                    .state
+                    .task_manager
+                    .get_available_task_count(&job_id)
+                    .await?;
 
-                    let reservations: Vec<ExecutorReservation> = self
-                        .state
-                        .executor_manager
-                        .reserve_slots(available_tasks as u32)?
-                        .into_iter()
-                        .map(|res| res.assign(job_id.clone()))
-                        .collect();
+                let reservations: Vec<ExecutorReservation> = self
+                    .state
+                    .executor_manager
+                    .reserve_slots(available_tasks as u32)?
+                    .into_iter()
+                    .map(|res| res.assign(job_id.clone()))
+                    .collect();
 
-                    if reservations.is_empty() && self.job_resubmit_interval_ms.is_some()
-                    {
-                        let wait_ms = self.job_resubmit_interval_ms.unwrap();
+                if reservations.is_empty() && self.job_resubmit_interval_ms.is_some() {
+                    let wait_ms = self.job_resubmit_interval_ms.unwrap();
 
-                        debug!(
+                    debug!(
                             "No task slots reserved for job {job_id}, resubmitting after {wait_ms}ms"
                         );
 
-                        tokio::task::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+                    tokio::task::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
 
-                            if let Err(e) = tx_event
-                                .post_event(QueryStageSchedulerEvent::JobSubmitted {
-                                    job_id,
-                                    job_name,
-                                    session_id,
-                                    queued_at,
-                                    submitted_at,
-                                    resubmit: true,
-                                    plan: plan.clone(),
-                                })
-                                .await
-                            {
-                                error!("error resubmitting job: {}", e);
-                            }
-                        });
-                    } else {
-                        debug!(
-                            "Reserved {} task slots for submitted job {}",
-                            reservations.len(),
-                            job_id
-                        );
+                        if let Err(e) = tx_event
+                            .post_event(QueryStageSchedulerEvent::JobSubmitted {
+                                job_id,
+                                job_name,
+                                session_id,
+                                queued_at,
+                                submitted_at,
+                                resubmit: true,
+                                plan: plan.clone(),
+                            })
+                            .await
+                        {
+                            error!("error resubmitting job: {}", e);
+                        }
+                    });
+                } else {
+                    debug!(
+                        "Reserved {} task slots for submitted job {}",
+                        reservations.len(),
+                        job_id
+                    );
 
-                        tx_event
-                            .post_event(QueryStageSchedulerEvent::ReservationOffering(
-                                reservations,
-                            ))
-                            .await?;
-                    }
+                    tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                            reservations,
+                        ))
+                        .await?;
                 }
             }
             QueryStageSchedulerEvent::JobPlanningFailed {
@@ -305,13 +302,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .await
                 {
                     Ok((stage_events, offers)) => {
-                        if self.state.config.is_push_staged_scheduling() {
-                            tx_event
-                                .post_event(
-                                    QueryStageSchedulerEvent::ReservationOffering(offers),
-                                )
-                                .await?;
-                        }
+                        tx_event
+                            .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                                offers,
+                            ))
+                            .await?;
 
                         for stage_event in stage_events {
                             tx_event.post_event(stage_event).await?;
@@ -393,7 +388,6 @@ mod tests {
     use crate::event_loop::EventAction;
     use crate::scheduler_server::event::QueryStageSchedulerEvent;
     use crate::test_utils::{await_condition, SchedulerTest, TestMetricsCollector};
-    use ballista_core::config::TaskSchedulingPolicy;
     use ballista_core::error::Result;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::logical_expr::{col, sum, LogicalPlan};
@@ -411,9 +405,7 @@ mod tests {
 
         // Set resubmit interval of 1ms
         let mut test = SchedulerTest::new(
-            SchedulerConfig::default()
-                .with_job_resubmit_interval_ms(1)
-                .with_scheduler_policy(TaskSchedulingPolicy::PushStaged),
+            SchedulerConfig::default().with_job_resubmit_interval_ms(1),
             metrics_collector.clone(),
             0,
             0,
@@ -467,8 +459,7 @@ mod tests {
         let metrics_collector = Arc::new(TestMetricsCollector::default());
 
         let mut test = SchedulerTest::new(
-            SchedulerConfig::default()
-                .with_scheduler_policy(TaskSchedulingPolicy::PushStaged),
+            SchedulerConfig::default(),
             metrics_collector.clone(),
             1,
             1,
@@ -516,8 +507,7 @@ mod tests {
         let metrics_collector = Arc::new(TestMetricsCollector::default());
 
         let mut test = SchedulerTest::new(
-            SchedulerConfig::default()
-                .with_scheduler_policy(TaskSchedulingPolicy::PushStaged),
+            SchedulerConfig::default(),
             metrics_collector.clone(),
             1,
             1,

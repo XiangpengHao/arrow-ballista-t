@@ -47,11 +47,6 @@ pub async fn start_server(
         "Ballista v{} Scheduler listening on {:?}",
         BALLISTA_VERSION, addr
     );
-    // Should only call SchedulerServer::new() once in the process
-    info!(
-        "Starting Scheduler grpc server with task scheduling policy of {:?}",
-        config.scheduling_policy
-    );
 
     let metrics_collector = default_metrics_collector()?;
 

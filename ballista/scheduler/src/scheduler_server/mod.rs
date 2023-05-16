@@ -187,9 +187,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         tasks_status: Vec<TaskStatus>,
     ) -> Result<()> {
         // We might receive buggy task updates from dead executors.
-        if self.state.config.is_push_staged_scheduling()
-            && self.state.executor_manager.is_dead_executor(executor_id)
-        {
+        if self.state.executor_manager.is_dead_executor(executor_id) {
             let error_msg = format!(
                 "Receive buggy tasks status from dead Executor {executor_id}, task status update ignored."
             );
@@ -343,9 +341,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
         // If we are using push-based scheduling then reserve this executors slots and send
         // them for scheduling tasks.
-        if self.state.config.is_push_staged_scheduling() {
-            self.offer_reservation(reservations).await?;
-        }
+        self.offer_reservation(reservations).await?;
 
         Ok(())
     }

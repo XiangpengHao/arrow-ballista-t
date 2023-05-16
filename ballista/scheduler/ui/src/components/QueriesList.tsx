@@ -60,7 +60,7 @@ export interface QueriesListProps {
   queries?: Query[];
 }
 
-export const ActionsCell: (props: any) => React.ReactNode = (props: any) => {
+export const ActionsCell = (props: any) => {
   const [dot_data, setData] = useState("");
   const { isOpen, onOpen, onClose } = useDisclosure();
   const ref = React.useRef<SVGElement>(null);
@@ -142,7 +142,7 @@ export const ActionsCell: (props: any) => React.ReactNode = (props: any) => {
   );
 };
 
-export const JobLinkCell: (props: any) => React.ReactNode = (props: any) => {
+export const JobLinkCell = (props: any) => {
   const [stages, setData] = useState();
   const [loaded, setLoaded] = useState(false);
   const { isOpen, onOpen, onClose } = useDisclosure();
@@ -168,7 +168,7 @@ export const JobLinkCell: (props: any) => React.ReactNode = (props: any) => {
 
   return (
     <Flex>
-      <Link onClick={onOpen} icon>
+      <Link onClick={onOpen}>
         {props.value} <ExternalLinkIcon mx="2px" />
       </Link>
       <Modal isOpen={isOpen} size="small" onClose={onClose}>
@@ -192,7 +192,7 @@ export const JobLinkCell: (props: any) => React.ReactNode = (props: any) => {
   );
 };
 
-export const ProgressCell: (props: any) => React.ReactNode = (props: any) => {
+export const ProgressCell = (props: any) => {
   return (
     <CircularProgress value={props.value} color="orange.400">
       <CircularProgressLabel>{props.value}%</CircularProgressLabel>

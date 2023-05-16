@@ -64,7 +64,7 @@ export const Summary: React.FunctionComponent<SummaryProps> = ({
             fontWeight={"normal"}
           >
             <Text fontWeight={"light"} mb={2}>
-              Cluster Details
+              Cluster Details asdfasd 
             </Text>
             <Flex>
               <Label>Status</Label>

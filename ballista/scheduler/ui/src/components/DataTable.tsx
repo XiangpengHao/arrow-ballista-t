@@ -36,7 +36,7 @@ import {
   usePagination,
   Column as RTColumn,
 } from "react-table";
-import { HiChevronLeft, HiChevronRight } from "react-icons/all";
+import { HiChevronLeft, HiChevronRight } from "react-icons/hi2";
 import TimeAgo from "react-timeago";
 
 type RenderFn = (props: any) => React.ReactNode;
@@ -49,9 +49,9 @@ interface Row {
 export type Column<Row> =
   | RTColumn
   | {
-      isNumeric?: boolean;
-      render?: RenderFn;
-    };
+    isNumeric?: boolean;
+    render?: RenderFn;
+  };
 
 interface DataTableProps {
   columns: Column<Row>[];
@@ -61,7 +61,7 @@ interface DataTableProps {
   pb?: number;
 }
 
-export const ElapsedCell: (props: any) => React.ReactNode = (props: any) => {
+export const ElapsedCell = (props: any) => {
   return (
     <TimeAgo
       date={props.value}

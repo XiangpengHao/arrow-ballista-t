@@ -150,12 +150,9 @@ impl<S: ClusterState> ClusterStateTest<S> {
         let filter = filter.map(|f| f.into_iter().collect::<HashSet<String>>());
         let reservations = if exact {
             self.state
-                .reserve_slots_exact(num_slots, distribution, filter)
-                .await?
+                .reserve_slots_exact(num_slots, distribution, filter)?
         } else {
-            self.state
-                .reserve_slots(num_slots, distribution, filter)
-                .await?
+            self.state.reserve_slots(num_slots, distribution, filter)?
         };
 
         self.reservations.extend(reservations);
@@ -175,8 +172,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         let to_keep = self.reservations.split_off(num_slots);
 
         self.state
-            .cancel_reservations(std::mem::take(&mut self.reservations))
-            .await?;
+            .cancel_reservations(std::mem::take(&mut self.reservations))?;
 
         self.reservations = to_keep;
 
@@ -230,10 +226,8 @@ impl<S: ClusterState> ClusterStateTest<S> {
                     if i % 2 == 0 {
                         let to_reserve = rand::random::<u32>() % total_slots;
 
-                        let reservations = state
-                            .reserve_slots(to_reserve, distribution, None)
-                            .await
-                            .unwrap();
+                        let reservations =
+                            state.reserve_slots(to_reserve, distribution, None).unwrap();
 
                         sender_clone
                             .send(FuzzEvent::Reserved(reservations.clone()))
@@ -244,7 +238,6 @@ impl<S: ClusterState> ClusterStateTest<S> {
                     } else {
                         state
                             .cancel_reservations(open_reservations.clone())
-                            .await
                             .unwrap();
                         sender_clone
                             .send(FuzzEvent::Cancelled(std::mem::take(
@@ -403,7 +396,7 @@ impl<S: JobState> JobStateTest<S> {
     pub async fn new(state: S) -> Result<Self> {
         let events = Arc::new(RwLock::new(vec![]));
 
-        let mut event_stream = state.job_state_events().await?;
+        let mut event_stream = state.job_state_events()?;
         let events_clone = events.clone();
         tokio::spawn(async move {
             while let Some(event) = event_stream.next().await {
@@ -420,21 +413,18 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn queue_job(self, job_id: &str) -> Result<Self> {
-        self.state
-            .accept_job(job_id, "", timestamp_millis())
-            .await?;
+        self.state.accept_job(job_id, "", timestamp_millis())?;
         Ok(self)
     }
 
     pub async fn fail_planning(self, job_id: &str) -> Result<Self> {
         self.state
-            .fail_unscheduled_job(job_id, "failed planning".to_string())
-            .await?;
+            .fail_unscheduled_job(job_id, "failed planning".to_string())?;
         Ok(self)
     }
 
     pub async fn assert_queued(self, job_id: &str) -> Result<Self> {
-        let status = self.state.get_job_status(job_id).await?;
+        let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Queued job {} not found", job_id);
 
@@ -451,14 +441,12 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn submit_job(self, graph: &ExecutionGraph) -> Result<Self> {
-        self.state
-            .submit_job(graph.job_id().to_string(), graph)
-            .await?;
+        self.state.submit_job(graph.job_id().to_string(), graph)?;
         Ok(self)
     }
 
     pub async fn assert_job_running(self, job_id: &str) -> Result<Self> {
-        let status = self.state.get_job_status(job_id).await?;
+        let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
 
@@ -475,12 +463,12 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn update_job(self, graph: &ExecutionGraph) -> Result<Self> {
-        self.state.save_job(graph.job_id(), graph).await?;
+        self.state.save_job(graph.job_id(), graph)?;
         Ok(self)
     }
 
     pub async fn assert_job_failed(self, job_id: &str) -> Result<Self> {
-        let status = self.state.get_job_status(job_id).await?;
+        let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
 
@@ -497,7 +485,7 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn assert_job_successful(self, job_id: &str) -> Result<Self> {
-        let status = self.state.get_job_status(job_id).await?;
+        let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
         let status = status.unwrap();

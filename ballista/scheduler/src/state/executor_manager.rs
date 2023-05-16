@@ -107,7 +107,7 @@ impl ExecutorManager {
     }
 
     pub async fn init(&self) -> Result<()> {
-        self.cluster_state.init().await?;
+        self.cluster_state.init()?;
 
         Ok(())
     }
@@ -122,7 +122,6 @@ impl ExecutorManager {
 
         self.cluster_state
             .reserve_slots(n, self.task_distribution, Some(alive_executors))
-            .await
     }
 
     /// Returned reserved task slots to the pool of available slots. This operation is atomic
@@ -131,7 +130,7 @@ impl ExecutorManager {
         &self,
         reservations: Vec<ExecutorReservation>,
     ) -> Result<()> {
-        self.cluster_state.cancel_reservations(reservations).await
+        self.cluster_state.cancel_reservations(reservations)
     }
 
     /// Send rpc to Executors to cancel the running tasks

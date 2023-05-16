@@ -21,7 +21,6 @@ use crate::cluster::{
 };
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
-use async_trait::async_trait;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf::{
@@ -55,9 +54,8 @@ pub struct InMemoryClusterState {
     heartbeats: DashMap<String, ExecutorHeartbeat>,
 }
 
-#[async_trait]
 impl ClusterState for InMemoryClusterState {
-    async fn reserve_slots(
+    fn reserve_slots(
         &self,
         num_slots: u32,
         distribution: TaskDistribution,
@@ -90,7 +88,7 @@ impl ClusterState for InMemoryClusterState {
         Ok(reservations)
     }
 
-    async fn reserve_slots_exact(
+    fn reserve_slots_exact(
         &self,
         num_slots: u32,
         distribution: TaskDistribution,
@@ -130,10 +128,7 @@ impl ClusterState for InMemoryClusterState {
         }
     }
 
-    async fn cancel_reservations(
-        &self,
-        reservations: Vec<ExecutorReservation>,
-    ) -> Result<()> {
+    fn cancel_reservations(&self, reservations: Vec<ExecutorReservation>) -> Result<()> {
         let mut increments = HashMap::new();
         for ExecutorReservation { executor_id, .. } in reservations {
             if let Some(inc) = increments.get_mut(&executor_id) {
@@ -289,9 +284,8 @@ impl InMemoryJobState {
     }
 }
 
-#[async_trait]
 impl JobState for InMemoryJobState {
-    async fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()> {
+    fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()> {
         if self.queued_jobs.get(&job_id).is_some() {
             self.running_jobs.insert(job_id.clone(), graph.status());
             self.queued_jobs.remove(&job_id);
@@ -309,7 +303,7 @@ impl JobState for InMemoryJobState {
         }
     }
 
-    async fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>> {
+    fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>> {
         if let Some((job_name, queued_at)) = self.queued_jobs.get(job_id).as_deref() {
             return Ok(Some(JobStatus {
                 job_id: job_id.to_string(),
@@ -331,7 +325,7 @@ impl JobState for InMemoryJobState {
         Ok(None)
     }
 
-    async fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>> {
+    fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>> {
         Ok(self
             .completed_jobs
             .get(job_id)
@@ -339,13 +333,13 @@ impl JobState for InMemoryJobState {
             .and_then(|(_, graph)| graph.clone()))
     }
 
-    async fn try_acquire_job(&self, _job_id: &str) -> Result<Option<ExecutionGraph>> {
+    fn try_acquire_job(&self, _job_id: &str) -> Result<Option<ExecutionGraph>> {
         // Always return None. The only state stored here are for completed jobs
         // which cannot be acquired
         Ok(None)
     }
 
-    async fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
+    fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
         let status = graph.status();
 
         debug!("saving state for job {job_id} with status {:?}", status);
@@ -370,7 +364,7 @@ impl JobState for InMemoryJobState {
         Ok(())
     }
 
-    async fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>> {
+    fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>> {
         self.sessions
             .get(session_id)
             .map(|sess| sess.clone())
@@ -379,17 +373,14 @@ impl JobState for InMemoryJobState {
             })
     }
 
-    async fn create_session(
-        &self,
-        config: &BallistaConfig,
-    ) -> Result<Arc<SessionContext>> {
+    fn create_session(&self, config: &BallistaConfig) -> Result<Arc<SessionContext>> {
         let session = create_datafusion_context(config, self.session_builder);
         self.sessions.insert(session.session_id(), session.clone());
 
         Ok(session)
     }
 
-    async fn update_session(
+    fn update_session(
         &self,
         session_id: &str,
         config: &BallistaConfig,
@@ -401,18 +392,18 @@ impl JobState for InMemoryJobState {
         Ok(session)
     }
 
-    async fn job_state_events(&self) -> Result<JobStateEventStream> {
+    fn job_state_events(&self) -> Result<JobStateEventStream> {
         Ok(Box::pin(self.job_event_sender.subscribe()))
     }
 
-    async fn remove_job(&self, job_id: &str) -> Result<()> {
+    fn remove_job(&self, job_id: &str) -> Result<()> {
         if self.completed_jobs.remove(job_id).is_none() {
             warn!("Tried to delete non-existent job {job_id} from state");
         }
         Ok(())
     }
 
-    async fn get_jobs(&self) -> Result<HashSet<String>> {
+    fn get_jobs(&self) -> Result<HashSet<String>> {
         Ok(self
             .completed_jobs
             .iter()
@@ -420,19 +411,14 @@ impl JobState for InMemoryJobState {
             .collect())
     }
 
-    async fn accept_job(
-        &self,
-        job_id: &str,
-        job_name: &str,
-        queued_at: u64,
-    ) -> Result<()> {
+    fn accept_job(&self, job_id: &str, job_name: &str, queued_at: u64) -> Result<()> {
         self.queued_jobs
             .insert(job_id.to_string(), (job_name.to_string(), queued_at));
 
         Ok(())
     }
 
-    async fn fail_unscheduled_job(&self, job_id: &str, reason: String) -> Result<()> {
+    fn fail_unscheduled_job(&self, job_id: &str, reason: String) -> Result<()> {
         if let Some((job_id, (job_name, queued_at))) = self.queued_jobs.remove(job_id) {
             self.completed_jobs.insert(
                 job_id.clone(),

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::scheduler_server::SessionBuilder;
+use crate::{cluster::memory::InMemoryJobState, scheduler_server::SessionBuilder};
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::Result;
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -27,11 +27,11 @@ use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct SessionManager {
-    state: Arc<dyn JobState>,
+    state: Arc<InMemoryJobState>,
 }
 
 impl SessionManager {
-    pub fn new(state: Arc<dyn JobState>) -> Self {
+    pub fn new(state: Arc<InMemoryJobState>) -> Self {
         Self { state }
     }
 
@@ -40,18 +40,18 @@ impl SessionManager {
         session_id: &str,
         config: &BallistaConfig,
     ) -> Result<Arc<SessionContext>> {
-        self.state.update_session(session_id, config).await
+        self.state.update_session(session_id, config)
     }
 
     pub async fn create_session(
         &self,
         config: &BallistaConfig,
     ) -> Result<Arc<SessionContext>> {
-        self.state.create_session(config).await
+        self.state.create_session(config)
     }
 
     pub async fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>> {
-        self.state.get_session(session_id).await
+        self.state.get_session(session_id)
     }
 }
 

@@ -44,13 +44,13 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct BallistaCluster {
     cluster_state: Arc<InMemoryClusterState>,
-    job_state: Arc<dyn JobState>,
+    job_state: Arc<InMemoryJobState>,
 }
 
 impl BallistaCluster {
     pub fn new(
         cluster_state: Arc<InMemoryClusterState>,
-        job_state: Arc<dyn JobState>,
+        job_state: Arc<InMemoryJobState>,
     ) -> Self {
         Self {
             cluster_state,
@@ -80,7 +80,7 @@ impl BallistaCluster {
         self.cluster_state.clone()
     }
 
-    pub fn job_state(&self) -> Arc<dyn JobState> {
+    pub fn job_state(&self) -> Arc<InMemoryJobState> {
         self.job_state.clone()
     }
 }
@@ -90,10 +90,9 @@ impl BallistaCluster {
 pub type ExecutorHeartbeatStream = Pin<Box<dyn Stream<Item = ExecutorHeartbeat> + Send>>;
 
 /// A trait that contains the necessary method to maintain a globally consistent view of cluster resources
-#[tonic::async_trait]
 pub trait ClusterState: Send + Sync + 'static {
     /// Initialize when it's necessary, especially for state with backend storage
-    async fn init(&self) -> Result<()> {
+    fn init(&self) -> Result<()> {
         Ok(())
     }
 
@@ -101,7 +100,7 @@ pub trait ClusterState: Send + Sync + 'static {
     /// as many as possible.
     ///
     /// If `executors` is provided, only reserve slots of the specified executor IDs
-    async fn reserve_slots(
+    fn reserve_slots(
         &self,
         num_slots: u32,
         distribution: TaskDistribution,
@@ -112,7 +111,7 @@ pub trait ClusterState: Send + Sync + 'static {
     /// returns an empty vec
     ///
     /// If `executors` is provided, only reserve slots of the specified executor IDs
-    async fn reserve_slots_exact(
+    fn reserve_slots_exact(
         &self,
         num_slots: u32,
         distribution: TaskDistribution,
@@ -122,10 +121,7 @@ pub trait ClusterState: Send + Sync + 'static {
     /// Cancel the specified reservations. This will make reserved executor slots available to other
     /// tasks.
     /// This operations should be atomic. Either all reservations are cancelled or none are
-    async fn cancel_reservations(
-        &self,
-        reservations: Vec<ExecutorReservation>,
-    ) -> Result<()>;
+    fn cancel_reservations(&self, reservations: Vec<ExecutorReservation>) -> Result<()>;
 
     /// Register a new executor in the cluster. If `reserve` is true, then the executors task slots
     /// will be reserved and returned in the response and none of the new executors task slots will be
@@ -198,67 +194,58 @@ pub enum JobStateEvent {
 pub type JobStateEventStream = Pin<Box<dyn Stream<Item = JobStateEvent> + Send>>;
 
 /// A trait that contains the necessary methods for persisting state related to executing jobs
-#[tonic::async_trait]
 pub trait JobState: Send + Sync {
     /// Accept job into  a scheduler's job queue. This should be called when a job is
     /// received by the scheduler but before it is planned and may or may not be saved
     /// in global state
-    async fn accept_job(
-        &self,
-        job_id: &str,
-        job_name: &str,
-        queued_at: u64,
-    ) -> Result<()>;
+    fn accept_job(&self, job_id: &str, job_name: &str, queued_at: u64) -> Result<()>;
 
     /// Submit a new job to the `JobState`. It is assumed that the submitter owns the job.
     /// In local state the job should be save as `JobStatus::Active` and in shared state
     /// it should be saved as `JobStatus::Running` with `scheduler` set to the current scheduler
-    async fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()>;
+    fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()>;
 
     /// Return a `Vec` of all active job IDs in the `JobState`
-    async fn get_jobs(&self) -> Result<HashSet<String>>;
+    fn get_jobs(&self) -> Result<HashSet<String>>;
 
     /// Fetch the job status
-    async fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>>;
+    fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>>;
 
     /// Get the `ExecutionGraph` for job. The job may or may not belong to the caller
     /// and should return the `ExecutionGraph` for the given job (if it exists) at the
     /// time this method is called with no guarantees that the graph has not been
     /// subsequently updated by another scheduler.
-    async fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>>;
+    fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>>;
 
     /// Persist the current state of an owned job to global state. This should fail
     /// if the job is not owned by the caller.
-    async fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()>;
+    fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()>;
 
     /// Mark a job which has not been submitted as failed. This should be called if a job fails
     /// during planning (and does not yet have an `ExecutionGraph`)
-    async fn fail_unscheduled_job(&self, job_id: &str, reason: String) -> Result<()>;
+    fn fail_unscheduled_job(&self, job_id: &str, reason: String) -> Result<()>;
 
     /// Delete a job from the global state
-    async fn remove_job(&self, job_id: &str) -> Result<()>;
+    fn remove_job(&self, job_id: &str) -> Result<()>;
 
     /// Attempt to acquire ownership of the given job. If the job is still in a running state
     /// and is successfully acquired by the caller, return the current `ExecutionGraph`,
     /// otherwise return `None`
-    async fn try_acquire_job(&self, job_id: &str) -> Result<Option<ExecutionGraph>>;
+    fn try_acquire_job(&self, job_id: &str) -> Result<Option<ExecutionGraph>>;
 
     /// Get a stream of all `JobState` events. An event should be published any time that status
     /// of a job changes in state
-    async fn job_state_events(&self) -> Result<JobStateEventStream>;
+    fn job_state_events(&self) -> Result<JobStateEventStream>;
 
     /// Get the `SessionContext` associated with `session_id`. Returns an error if the
     /// session does not exist
-    async fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>>;
+    fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>>;
 
     /// Create a new saved session
-    async fn create_session(
-        &self,
-        config: &BallistaConfig,
-    ) -> Result<Arc<SessionContext>>;
+    fn create_session(&self, config: &BallistaConfig) -> Result<Arc<SessionContext>>;
 
     // Update a new saved session. If the session does not exist, a new one will be created
-    async fn update_session(
+    fn update_session(
         &self,
         session_id: &str,
         config: &BallistaConfig,

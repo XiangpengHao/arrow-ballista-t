@@ -19,9 +19,6 @@ use ballista_core::BALLISTA_VERSION;
 use datafusion::physical_plan::metrics::{MetricValue, MetricsSet, Time};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
-use graphviz_rust::cmd::{CommandArg, Format};
-use graphviz_rust::exec;
-use graphviz_rust::printer::PrinterContext;
 use http::header::CONTENT_TYPE;
 
 use std::time::Duration;
@@ -327,30 +324,6 @@ pub(crate) async fn get_query_stage_dot_graph<T: AsLogicalPlan, U: AsExecutionPl
             .map_err(|_| warp::reject())
     } else {
         Ok("Not Found".to_string())
-    }
-}
-
-/// Generate an SVG graph for the specified job id and return it as plain text
-pub(crate) async fn get_job_svg_graph<T: AsLogicalPlan, U: AsExecutionPlan>(
-    data_server: SchedulerServer<T, U>,
-    job_id: String,
-) -> Result<String, Rejection> {
-    let dot = get_job_dot_graph(data_server, job_id).await;
-    match dot {
-        Ok(dot) => {
-            let graph = graphviz_rust::parse(&dot);
-            if let Ok(graph) = graph {
-                exec(
-                    graph,
-                    &mut PrinterContext::default(),
-                    vec![CommandArg::Format(Format::Svg)],
-                )
-                .map_err(|_| warp::reject())
-            } else {
-                Ok("Cannot parse graph".to_string())
-            }
-        }
-        _ => Ok("Not Found".to_string()),
     }
 }
 

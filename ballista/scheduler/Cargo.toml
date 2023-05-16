@@ -51,7 +51,6 @@ dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 futures = { workspace = true }
-graphviz-rust = "0.6.1"
 http = "0.2"
 http-body = "0.4"
 hyper = "0.14.4"

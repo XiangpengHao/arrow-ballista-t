@@ -239,8 +239,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 error!("Job {} failed: {}", job_id, fail_message);
                 self.state
                     .task_manager
-                    .fail_unscheduled_job(&job_id, fail_message)
-                    .await?;
+                    .fail_unscheduled_job(&job_id, fail_message)?;
             }
             QueryStageSchedulerEvent::JobFinished {
                 job_id,

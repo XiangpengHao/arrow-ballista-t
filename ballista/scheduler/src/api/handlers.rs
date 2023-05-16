@@ -86,7 +86,6 @@ pub(crate) async fn get_executors<T: AsLogicalPlan, U: AsExecutionPlan>(
     let executors: Vec<ExecutorMetaResponse> = state
         .executor_manager
         .get_executor_state()
-        .await
         .unwrap_or_default()
         .into_iter()
         .map(|(metadata, duration)| ExecutorMetaResponse {

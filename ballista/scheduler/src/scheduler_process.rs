@@ -64,7 +64,7 @@ pub async fn start_server(
             metrics_collector,
         );
 
-    scheduler_server.init().await?;
+    scheduler_server.init()?;
 
     Server::bind(&addr)
         .serve(make_service_fn(move |request: &AddrStream| {

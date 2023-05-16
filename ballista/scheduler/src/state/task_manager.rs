@@ -436,7 +436,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     /// Mark a unscheduled job as failed. This will create a key under the FailedJobs keyspace
     /// and remove the job from ActiveJobs or QueuedJobs
-    pub async fn fail_unscheduled_job(
+    pub fn fail_unscheduled_job(
         &self,
         job_id: &str,
         failure_reason: String,

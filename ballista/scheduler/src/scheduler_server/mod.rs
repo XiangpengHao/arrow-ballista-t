@@ -138,7 +138,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         }
     }
 
-    pub async fn init(&mut self) -> Result<()> {
+    pub fn init(&mut self) -> Result<()> {
         self.state.init()?;
         self.query_stage_event_loop.start()?;
         self.expire_dead_executors()?;
@@ -313,9 +313,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             tokio::time::sleep(Duration::from_secs(wait_secs)).await;
 
             // Update the executor manager immediately here
-            if let Err(e) = executor_manager
-                .remove_executor(&executor_id, reason.clone())
-                .await
+            if let Err(e) = executor_manager.remove_executor(&executor_id, reason.clone())
             {
                 error!("error removing executor {executor_id}: {e:?}");
             }

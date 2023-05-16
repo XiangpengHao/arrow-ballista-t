@@ -435,7 +435,7 @@ impl SchedulerTest {
                 metrics_collector,
                 Arc::new(launcher),
             );
-        scheduler.init().await?;
+        scheduler.init()?;
 
         for (executor_id, VirtualExecutor { task_slots, .. }) in executors {
             let metadata = ExecutorMetadata {

@@ -40,7 +40,7 @@ pub struct ClusterStateTest<S: ClusterState> {
 }
 
 impl<S: ClusterState> ClusterStateTest<S> {
-    pub async fn new(state: S) -> Result<Self> {
+    pub fn new(state: S) -> Result<Self> {
         Ok(Self {
             state: Arc::new(state),
             reservations: vec![],
@@ -48,7 +48,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         })
     }
 
-    pub async fn register_executor(
+    pub fn register_executor(
         mut self,
         executor_id: &str,
         task_slots: u32,
@@ -74,7 +74,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         Ok(self)
     }
 
-    pub async fn remove_executor(self, executor_id: &str) -> Result<Self> {
+    pub fn remove_executor(self, executor_id: &str) -> Result<Self> {
         self.state.remove_executor(executor_id);
 
         Ok(self)
@@ -140,7 +140,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         Ok(self)
     }
 
-    pub async fn try_reserve_slots(
+    pub fn try_reserve_slots(
         mut self,
         num_slots: u32,
         distribution: TaskDistribution,
@@ -160,7 +160,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         Ok(self)
     }
 
-    pub async fn cancel_reservations(mut self, num_slots: usize) -> Result<Self> {
+    pub fn cancel_reservations(mut self, num_slots: usize) -> Result<Self> {
         if self.reservations.len() < num_slots {
             return Err(BallistaError::General(format!(
                 "Not enough reservations to cancel, expected {} but found {}",
@@ -292,42 +292,37 @@ pub async fn test_fuzz_reservations<S: ClusterState>(
     num_executors: usize,
     task_slots_per_executor: usize,
 ) -> Result<()> {
-    let mut test = ClusterStateTest::new(state).await?;
+    let mut test = ClusterStateTest::new(state)?;
 
     for idx in 0..num_executors {
-        test = test
-            .register_executor(idx.to_string().as_str(), task_slots_per_executor as u32)
-            .await?;
+        test = test.register_executor(
+            idx.to_string().as_str(),
+            task_slots_per_executor as u32,
+        )?;
     }
 
     test.fuzz_reservation(concurrency, distribution).await
 }
 
 pub async fn test_executor_registration<S: ClusterState>(state: S) -> Result<()> {
-    let test = ClusterStateTest::new(state).await?;
+    let test = ClusterStateTest::new(state)?;
 
-    test.register_executor("1", 10)
-        .await?
-        .register_executor("2", 10)
-        .await?
-        .register_executor("3", 10)
-        .await?
+    test.register_executor("1", 10)?
+        .register_executor("2", 10)?
+        .register_executor("3", 10)?
         .assert_live_executor("1", 10)
         .await?
         .assert_live_executor("2", 10)
         .await?
         .assert_live_executor("3", 10)
         .await?
-        .remove_executor("1")
-        .await?
+        .remove_executor("1")?
         .assert_dead_executor("1")
         .await?
-        .remove_executor("2")
-        .await?
+        .remove_executor("2")?
         .assert_dead_executor("2")
         .await?
-        .remove_executor("3")
-        .await?
+        .remove_executor("3")?
         .assert_dead_executor("3")
         .await?;
 
@@ -338,48 +333,34 @@ pub async fn test_reservation<S: ClusterState>(
     state: S,
     distribution: TaskDistribution,
 ) -> Result<()> {
-    let test = ClusterStateTest::new(state).await?;
+    let test = ClusterStateTest::new(state)?;
 
-    test.register_executor("1", 10)
-        .await?
-        .register_executor("2", 10)
-        .await?
-        .register_executor("3", 10)
-        .await?
-        .try_reserve_slots(10, distribution, None, false)
-        .await?
+    test.register_executor("1", 10)?
+        .register_executor("2", 10)?
+        .register_executor("3", 10)?
+        .try_reserve_slots(10, distribution, None, false)?
         .assert_open_reservations(10)
-        .cancel_reservations(10)
-        .await?
-        .try_reserve_slots(30, distribution, None, false)
-        .await?
+        .cancel_reservations(10)?
+        .try_reserve_slots(30, distribution, None, false)?
         .assert_open_reservations(30)
-        .cancel_reservations(15)
-        .await?
+        .cancel_reservations(15)?
         .assert_open_reservations(15)
-        .try_reserve_slots(30, distribution, None, false)
-        .await?
+        .try_reserve_slots(30, distribution, None, false)?
         .assert_open_reservations(30)
-        .cancel_reservations(30)
-        .await?
+        .cancel_reservations(30)?
         .assert_open_reservations(0)
-        .try_reserve_slots(50, distribution, None, false)
-        .await?
+        .try_reserve_slots(50, distribution, None, false)?
         .assert_open_reservations(30)
-        .cancel_reservations(30)
-        .await?
-        .try_reserve_slots(20, distribution, Some(vec!["1".to_string()]), false)
-        .await?
+        .cancel_reservations(30)?
+        .try_reserve_slots(20, distribution, Some(vec!["1".to_string()]), false)?
         .assert_open_reservations_with(10, |res| res.executor_id == "1")
-        .cancel_reservations(10)
-        .await?
+        .cancel_reservations(10)?
         .try_reserve_slots(
             20,
             distribution,
             Some(vec!["2".to_string(), "3".to_string()]),
             false,
-        )
-        .await?
+        )?
         .assert_open_reservations_with(20, |res| {
             res.executor_id == "2" || res.executor_id == "3"
         });
@@ -412,18 +393,18 @@ impl<S: JobState> JobStateTest<S> {
         })
     }
 
-    pub async fn queue_job(self, job_id: &str) -> Result<Self> {
+    pub fn queue_job(self, job_id: &str) -> Result<Self> {
         self.state.accept_job(job_id, "", timestamp_millis())?;
         Ok(self)
     }
 
-    pub async fn fail_planning(self, job_id: &str) -> Result<Self> {
+    pub fn fail_planning(self, job_id: &str) -> Result<Self> {
         self.state
             .fail_unscheduled_job(job_id, "failed planning".to_string())?;
         Ok(self)
     }
 
-    pub async fn assert_queued(self, job_id: &str) -> Result<Self> {
+    pub fn assert_queued(self, job_id: &str) -> Result<Self> {
         let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Queued job {} not found", job_id);
@@ -440,12 +421,12 @@ impl<S: JobState> JobStateTest<S> {
         Ok(self)
     }
 
-    pub async fn submit_job(self, graph: &ExecutionGraph) -> Result<Self> {
+    pub fn submit_job(self, graph: &ExecutionGraph) -> Result<Self> {
         self.state.submit_job(graph.job_id().to_string(), graph)?;
         Ok(self)
     }
 
-    pub async fn assert_job_running(self, job_id: &str) -> Result<Self> {
+    pub fn assert_job_running(self, job_id: &str) -> Result<Self> {
         let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
@@ -462,12 +443,12 @@ impl<S: JobState> JobStateTest<S> {
         Ok(self)
     }
 
-    pub async fn update_job(self, graph: &ExecutionGraph) -> Result<Self> {
+    pub fn update_job(self, graph: &ExecutionGraph) -> Result<Self> {
         self.state.save_job(graph.job_id(), graph)?;
         Ok(self)
     }
 
-    pub async fn assert_job_failed(self, job_id: &str) -> Result<Self> {
+    pub fn assert_job_failed(self, job_id: &str) -> Result<Self> {
         let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
@@ -484,7 +465,7 @@ impl<S: JobState> JobStateTest<S> {
         Ok(self)
     }
 
-    pub async fn assert_job_successful(self, job_id: &str) -> Result<Self> {
+    pub fn assert_job_successful(self, job_id: &str) -> Result<Self> {
         let status = self.state.get_job_status(job_id)?;
 
         assert!(status.is_some(), "Job status not found for {}", job_id);
@@ -524,22 +505,15 @@ pub async fn test_job_lifecycle<S: JobState>(
     let job_id = graph.job_id().to_string();
 
     let test = test
-        .queue_job(&job_id)
-        .await?
-        .assert_queued(&job_id)
-        .await?
-        .submit_job(&graph)
-        .await?
-        .assert_job_running(&job_id)
-        .await?;
+        .queue_job(&job_id)?
+        .assert_queued(&job_id)?
+        .submit_job(&graph)?
+        .assert_job_running(&job_id)?;
 
     drain_tasks(&mut graph)?;
     graph.succeed_job()?;
 
-    test.update_job(&graph)
-        .await?
-        .assert_job_successful(&job_id)
-        .await?;
+    test.update_job(&graph)?.assert_job_successful(&job_id)?;
 
     Ok(())
 }
@@ -552,12 +526,9 @@ pub async fn test_job_planning_failure<S: JobState>(
 
     let job_id = graph.job_id().to_string();
 
-    test.queue_job(&job_id)
-        .await?
-        .fail_planning(&job_id)
-        .await?
-        .assert_job_failed(&job_id)
-        .await?;
+    test.queue_job(&job_id)?
+        .fail_planning(&job_id)?
+        .assert_job_failed(&job_id)?;
 
     Ok(())
 }

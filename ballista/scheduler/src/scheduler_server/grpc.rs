@@ -88,7 +88,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             self.state
                 .executor_manager
                 .save_executor_metadata(metadata.clone())
-                .await
                 .map_err(|e| {
                     let msg = format!("Could not save executor metadata: {e}");
                     error!("{}", msg);
@@ -189,7 +188,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             .state
             .executor_manager
             .get_executor_metadata(&executor_id)
-            .await
         {
             warn!("Fail to get executor metadata: {}", e);
             if let Some(metadata) = metadata {
@@ -231,7 +229,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         self.state
             .executor_manager
             .save_executor_heartbeat(executor_heartbeat)
-            .await
             .map_err(|e| {
                 let msg = format!("Could not save executor heartbeat: {e}");
                 error!("{}", msg);

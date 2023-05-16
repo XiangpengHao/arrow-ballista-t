@@ -237,7 +237,7 @@ impl ExecutorManager {
         if let Some(client) = client {
             Ok(client)
         } else {
-            let executor_metadata = self.get_executor_metadata(executor_id).await?;
+            let executor_metadata = self.get_executor_metadata(executor_id)?;
             let executor_url = format!(
                 "http://{}:{}",
                 executor_metadata.host, executor_metadata.grpc_port
@@ -253,7 +253,7 @@ impl ExecutorManager {
     }
 
     /// Get a list of all executors along with the timestamp of their last recorded heartbeat
-    pub async fn get_executor_state(&self) -> Result<Vec<(ExecutorMetadata, Duration)>> {
+    pub fn get_executor_state(&self) -> Result<Vec<(ExecutorMetadata, Duration)>> {
         let heartbeat_timestamps: Vec<(String, u64)> = self
             .cluster_state
             .executor_heartbeats()
@@ -265,7 +265,7 @@ impl ExecutorManager {
         for (executor_id, ts) in heartbeat_timestamps {
             let duration = Duration::from_secs(ts);
 
-            let metadata = self.get_executor_metadata(&executor_id).await?;
+            let metadata = self.get_executor_metadata(&executor_id)?;
 
             state.push((metadata, duration));
         }
@@ -273,14 +273,11 @@ impl ExecutorManager {
         Ok(state)
     }
 
-    pub async fn get_executor_metadata(
-        &self,
-        executor_id: &str,
-    ) -> Result<ExecutorMetadata> {
+    pub fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata> {
         self.cluster_state.get_executor_metadata(executor_id)
     }
 
-    pub async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
+    pub fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
         self.cluster_state.save_executor_metadata(metadata);
         Ok(())
     }
@@ -332,7 +329,7 @@ impl ExecutorManager {
     }
 
     /// Remove the executor within the scheduler.
-    pub async fn remove_executor(
+    pub fn remove_executor(
         &self,
         executor_id: &str,
         reason: Option<String>,
@@ -368,7 +365,7 @@ impl ExecutorManager {
         Ok(())
     }
 
-    pub(crate) async fn save_executor_heartbeat(
+    pub(crate) fn save_executor_heartbeat(
         &self,
         heartbeat: ExecutorHeartbeat,
     ) -> Result<()> {
@@ -692,16 +689,14 @@ mod test {
         }
 
         // Fence one of the executors
-        executor_manager
-            .save_executor_heartbeat(ExecutorHeartbeat {
-                executor_id: "executor-0".to_string(),
-                timestamp: timestamp_secs(),
-                metrics: vec![],
-                status: Some(ExecutorStatus {
-                    status: Some(Status::Terminating(String::default())),
-                }),
-            })
-            .await?;
+        executor_manager.save_executor_heartbeat(ExecutorHeartbeat {
+            executor_id: "executor-0".to_string(),
+            timestamp: timestamp_secs(),
+            metrics: vec![],
+            status: Some(ExecutorStatus {
+                status: Some(Status::Terminating(String::default())),
+            }),
+        })?;
 
         let reservations = executor_manager.reserve_slots(8)?;
 

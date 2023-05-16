@@ -165,10 +165,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         executor_id: &str,
         tasks_status: Vec<TaskStatus>,
     ) -> Result<(Vec<QueryStageSchedulerEvent>, Vec<ExecutorReservation>)> {
-        let executor = self
-            .executor_manager
-            .get_executor_metadata(executor_id)
-            .await?;
+        let executor = self.executor_manager.get_executor_metadata(executor_id)?;
 
         let total_num_tasks = tasks_status.len();
         let reservations = (0..total_num_tasks)
@@ -246,7 +243,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 let n_tasks: usize =
                     tasks.iter().map(|stage_tasks| stage_tasks.len()).sum();
 
-                match executor_manager.get_executor_metadata(&executor_id).await {
+                match executor_manager.get_executor_metadata(&executor_id) {
                     Ok(executor) => {
                         if let Err(e) = task_manager
                             .launch_multi_task(&executor, tasks, &executor_manager)

@@ -40,6 +40,7 @@ import { GrDocumentDownload, GrOverview } from "react-icons/gr";
 import fileDownload from "js-file-download";
 import SVG from "react-inlinesvg";
 import { JobStagesQueries } from "./JobStagesMetrics";
+import { graphviz, wasmFolder } from "@hpcc-js/wasm";
 
 export enum QueryStatus {
   QUEUED = "QUEUED",
@@ -60,12 +61,15 @@ export interface QueriesListProps {
   queries?: Query[];
 }
 
+wasmFolder("https://cdn.jsdelivr.net/npm/@hpcc-js/wasm/dist");
+
 export const ActionsCell = (props: any) => {
   const [dot_data, setData] = useState("");
+  const [svg_data, setSvgData] = useState("");
   const { isOpen, onOpen, onClose } = useDisclosure();
   const ref = React.useRef<SVGElement>(null);
 
-  const dot_svg = (url: string) => {
+  const fetchDotData = (url: string) => {
     fetch(url, {
       method: "GET",
       headers: {
@@ -78,9 +82,17 @@ export const ActionsCell = (props: any) => {
 
   useEffect(() => {
     if (isOpen) {
-      dot_svg("/api/job/" + props.value.job_id + "/dot_svg");
+      fetchDotData("/api/job/" + props.value.job_id + "/dot");
     }
-  }, [dot_data, isOpen, props.value.job_id]);
+  }, [isOpen, props.value.job_id]);
+
+  useEffect(() => {
+    if (isOpen && dot_data) {
+      graphviz.dot(dot_data).then(svg => {
+        setSvgData(svg);
+      })
+    }
+  }, [dot_data, isOpen]);
 
   const handleDownload = (url: string, filename: string) => {
     fetch(url, {
@@ -129,7 +141,7 @@ export const ActionsCell = (props: any) => {
           </ModalHeader>
           <ModalCloseButton />
           <ModalBody margin="auto">
-            <SVG innerRef={ref} src={dot_data} width="auto" />
+            <SVG innerRef={ref} src={svg_data} width="auto" />
           </ModalBody>
           <ModalFooter>
             <Button colorScheme="blue" mr={3} onClick={onClose}>

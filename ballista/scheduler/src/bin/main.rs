@@ -25,8 +25,7 @@ use crate::config::{Config, ResultExt};
 use ballista_core::config::LogRotationPolicy;
 use ballista_core::print_version;
 use ballista_scheduler::cluster::BallistaCluster;
-use ballista_scheduler::cluster::ClusterStorage;
-use ballista_scheduler::config::{ClusterStorageConfig, SchedulerConfig};
+use ballista_scheduler::config::SchedulerConfig;
 use ballista_scheduler::scheduler_process::start_server;
 use tracing_subscriber::EnvFilter;
 
@@ -103,18 +102,6 @@ async fn main() -> Result<()> {
     let addr = format!("{}:{}", opt.bind_host, opt.bind_port);
     let addr = addr.parse()?;
 
-    let cluster_storage_config = match opt.cluster_backend {
-        ClusterStorage::Memory => ClusterStorageConfig::Memory,
-
-        #[cfg(feature = "etcd")]
-        ClusterStorage::Etcd => ClusterStorageConfig::Etcd(
-            opt.etcd_urls
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect(),
-        ),
-    };
-
     let config = SchedulerConfig {
         namespace: opt.namespace,
         external_host: opt.external_host,
@@ -127,7 +114,6 @@ async fn main() -> Result<()> {
         finished_job_state_clean_up_interval_seconds: opt
             .finished_job_state_clean_up_interval_seconds,
         advertise_flight_sql_endpoint: opt.advertise_flight_sql_endpoint,
-        cluster_storage: cluster_storage_config,
         job_resubmit_interval_ms: (opt.job_resubmit_interval_ms > 0)
             .then_some(opt.job_resubmit_interval_ms),
         executor_termination_grace_period: opt.executor_termination_grace_period,

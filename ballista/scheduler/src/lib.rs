@@ -29,7 +29,5 @@ pub mod scheduler_server;
 
 pub mod state;
 
-#[cfg(feature = "flight-sql")]
-pub mod flight_sql;
 #[cfg(test)]
 pub mod test_utils;

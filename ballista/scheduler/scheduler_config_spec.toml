@@ -30,13 +30,6 @@ type = "String"
 doc = "Route for proxying flight results via scheduler. Should be of the form 'IP:PORT'"
 
 [[param]]
-abbr = "b"
-name = "cluster_backend"
-type = "ballista_scheduler::cluster::ClusterStorage"
-doc = "The configuration backend for the scheduler cluster state, possible values: etcd, memory. Default: memory"
-default = "ballista_scheduler::cluster::ClusterStorage::Memory"
-
-[[param]]
 abbr = "n"
 name = "namespace"
 type = "String"

@@ -156,8 +156,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         }
     }
 
-    pub async fn init(&self) -> Result<()> {
-        self.executor_manager.init().await
+    pub fn init(&self) -> Result<()> {
+        self.executor_manager.init()
     }
 
     pub(crate) async fn update_task_statuses(
@@ -211,9 +211,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             // If error set all reservations back
             Err(e) => {
                 error!("Error filling reservations: {:?}", e);
-                self.executor_manager
-                    .cancel_reservations(reservations)
-                    .await?;
+                self.executor_manager.cancel_reservations(reservations)?;
                 0
             }
         };
@@ -222,10 +220,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
 
         if pending_tasks > 0 {
             // If there are pending tasks available, try and schedule them
-            let pending_reservations = self
-                .executor_manager
-                .reserve_slots(pending_tasks as u32)
-                .await?;
+            let pending_reservations =
+                self.executor_manager.reserve_slots(pending_tasks as u32)?;
             new_reservations.extend(pending_reservations);
         }
 
@@ -276,7 +272,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 // If any reserved slots remain, return them to the pool
                 executor_manager
                     .cancel_reservations(unassigned_reservations)
-                    .await
                     .expect("cancel_reservations fail!");
             }
         });
@@ -456,7 +451,7 @@ mod test {
         // Need sleep wait for the spawn task work done.
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         // All reservations should have been cancelled so we should be able to reserve them now
-        let reservations = state.executor_manager.reserve_slots(4).await?;
+        let reservations = state.executor_manager.reserve_slots(4)?;
 
         assert_eq!(reservations.len(), 4);
 
@@ -479,67 +474,51 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
             ));
 
-        let session_ctx = state.session_manager.create_session(&config).await?;
+        let session_ctx = state.session_manager.create_session(&config)?;
 
         let plan = test_graph(session_ctx.clone()).await;
 
         // Create 4 jobs so we have four pending tasks
         state
             .task_manager
-            .queue_job("job-1", "", timestamp_millis())
-            .await?;
+            .queue_job("job-1", "", timestamp_millis())?;
+        state.task_manager.submit_job(
+            "job-1",
+            "",
+            session_ctx.session_id().as_str(),
+            plan.clone(),
+            0,
+        )?;
         state
             .task_manager
-            .submit_job(
-                "job-1",
-                "",
-                session_ctx.session_id().as_str(),
-                plan.clone(),
-                0,
-            )
-            .await?;
+            .queue_job("job-2", "", timestamp_millis())?;
+        state.task_manager.submit_job(
+            "job-2",
+            "",
+            session_ctx.session_id().as_str(),
+            plan.clone(),
+            0,
+        )?;
         state
             .task_manager
-            .queue_job("job-2", "", timestamp_millis())
-            .await?;
+            .queue_job("job-3", "", timestamp_millis())?;
+        state.task_manager.submit_job(
+            "job-3",
+            "",
+            session_ctx.session_id().as_str(),
+            plan.clone(),
+            0,
+        )?;
         state
             .task_manager
-            .submit_job(
-                "job-2",
-                "",
-                session_ctx.session_id().as_str(),
-                plan.clone(),
-                0,
-            )
-            .await?;
-        state
-            .task_manager
-            .queue_job("job-3", "", timestamp_millis())
-            .await?;
-        state
-            .task_manager
-            .submit_job(
-                "job-3",
-                "",
-                session_ctx.session_id().as_str(),
-                plan.clone(),
-                0,
-            )
-            .await?;
-        state
-            .task_manager
-            .queue_job("job-4", "", timestamp_millis())
-            .await?;
-        state
-            .task_manager
-            .submit_job(
-                "job-4",
-                "",
-                session_ctx.session_id().as_str(),
-                plan.clone(),
-                0,
-            )
-            .await?;
+            .queue_job("job-4", "", timestamp_millis())?;
+        state.task_manager.submit_job(
+            "job-4",
+            "",
+            session_ctx.session_id().as_str(),
+            plan.clone(),
+            0,
+        )?;
 
         let executors = test_executors(1, 4);
 
@@ -556,7 +535,7 @@ mod test {
         assert!(result.is_empty());
 
         // All task slots should be assigned so we should not be able to reserve more tasks
-        let reservations = state.executor_manager.reserve_slots(4).await?;
+        let reservations = state.executor_manager.reserve_slots(4)?;
 
         assert_eq!(reservations.len(), 0);
 
@@ -579,25 +558,21 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
             ));
 
-        let session_ctx = state.session_manager.create_session(&config).await?;
+        let session_ctx = state.session_manager.create_session(&config)?;
 
         let plan = test_graph(session_ctx.clone()).await;
 
         // Create a job
         state
             .task_manager
-            .queue_job("job-1", "", timestamp_millis())
-            .await?;
-        state
-            .task_manager
-            .submit_job(
-                "job-1",
-                "",
-                session_ctx.session_id().as_str(),
-                plan.clone(),
-                0,
-            )
-            .await?;
+            .queue_job("job-1", "", timestamp_millis())?;
+        state.task_manager.submit_job(
+            "job-1",
+            "",
+            session_ctx.session_id().as_str(),
+            plan.clone(),
+            0,
+        )?;
 
         let executors = test_executors(1, 4);
 
@@ -652,7 +627,7 @@ mod test {
             .register_executor(executor_metadata, executor_data, false)
             .await?;
 
-        let reservations = state.executor_manager.reserve_slots(1).await?;
+        let reservations = state.executor_manager.reserve_slots(1)?;
 
         assert_eq!(reservations.len(), 1);
 
@@ -664,7 +639,7 @@ mod test {
         assert_eq!(reservations.len(), 3);
 
         // Remaining 3 task slots should be reserved for pending tasks
-        let reservations = state.executor_manager.reserve_slots(4).await?;
+        let reservations = state.executor_manager.reserve_slots(4)?;
 
         assert_eq!(reservations.len(), 0);
 

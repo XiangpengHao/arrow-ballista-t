@@ -41,7 +41,7 @@ impl SessionContextRegistry {
     }
 
     /// Adds a new session to this registry.
-    pub async fn register_session(
+    pub fn register_session(
         &self,
         session_ctx: Arc<SessionContext>,
     ) -> Option<Arc<SessionContext>> {
@@ -50,17 +50,14 @@ impl SessionContextRegistry {
     }
 
     /// Lookup the session context registered
-    pub async fn lookup_session(&self, session_id: &str) -> Option<Arc<SessionContext>> {
+    pub fn lookup_session(&self, session_id: &str) -> Option<Arc<SessionContext>> {
         self.running_sessions
             .get(session_id)
             .map(|value| value.clone())
     }
 
     /// Remove a session from this registry.
-    pub async fn unregister_session(
-        &self,
-        session_id: &str,
-    ) -> Option<Arc<SessionContext>> {
+    pub fn unregister_session(&self, session_id: &str) -> Option<Arc<SessionContext>> {
         match self.running_sessions.remove(session_id) {
             None => None,
             Some(value) => Some(value.1),

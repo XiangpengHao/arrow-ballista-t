@@ -112,8 +112,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
                 self.state
                     .task_manager
-                    .queue_job(&job_id, &job_name, queued_at)
-                    .await?;
+                    .queue_job(&job_id, &job_name, queued_at)?;
 
                 let state = self.state.clone();
                 tokio::spawn(async move {
@@ -160,16 +159,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         queued_at,
                         submitted_at,
                     );
-                    self.state
-                        .task_manager
-                        .submit_job(
-                            job_id.as_str(),
-                            job_name.as_str(),
-                            session_id.as_str(),
-                            plan.clone(),
-                            queued_at,
-                        )
-                        .await?;
+                    self.state.task_manager.submit_job(
+                        job_id.as_str(),
+                        job_name.as_str(),
+                        session_id.as_str(),
+                        plan.clone(),
+                        queued_at,
+                    )?;
                     info!("Job {} submitted", job_id);
                 } else {
                     debug!("Job {} resubmitted", job_id);
@@ -185,8 +181,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     let reservations: Vec<ExecutorReservation> = self
                         .state
                         .executor_manager
-                        .reserve_slots(available_tasks as u32)
-                        .await?
+                        .reserve_slots(available_tasks as u32)?
                         .into_iter()
                         .map(|res| res.assign(job_id.clone()))
                         .collect();
@@ -447,8 +442,7 @@ mod tests {
         query_stage_scheduler
             .state
             .task_manager
-            .queue_job("job-id", "job-name", 0)
-            .await?;
+            .queue_job("job-id", "job-name", 0)?;
 
         query_stage_scheduler.on_receive(event, &tx, &rx).await?;
 

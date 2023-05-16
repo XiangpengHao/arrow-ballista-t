@@ -139,7 +139,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     }
 
     pub async fn init(&mut self) -> Result<()> {
-        self.state.init().await?;
+        self.state.init()?;
         self.query_stage_event_loop.start()?;
         self.expire_dead_executors()?;
 

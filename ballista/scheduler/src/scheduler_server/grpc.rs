@@ -352,7 +352,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         .state
                         .session_manager
                         .update_session(&session_id, &config)
-                        .await
                         .map_err(|e| {
                             Status::internal(format!(
                                 "Failed to load SessionContext for session ID {session_id}: {e:?}"
@@ -361,16 +360,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     (session_id, ctx)
                 }
                 _ => {
-                    let ctx = self
-                        .state
-                        .session_manager
-                        .create_session(&config)
-                        .await
-                        .map_err(|e| {
-                            Status::internal(format!(
-                                "Failed to create SessionContext: {e:?}"
-                            ))
-                        })?;
+                    let ctx =
+                        self.state.session_manager.create_session(&config).map_err(
+                            |e| {
+                                Status::internal(format!(
+                                    "Failed to create SessionContext: {e:?}"
+                                ))
+                            },
+                        )?;
 
                     (ctx.session_id(), ctx)
                 }
@@ -436,16 +433,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 error!("{}", msg);
                 Status::internal(msg)
             })?;
-            let session = self
-                .state
-                .session_manager
-                .create_session(&config)
-                .await
-                .map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to create new SessionContext: {e:?}"
-                    ))
-                })?;
+            let session =
+                self.state
+                    .session_manager
+                    .create_session(&config)
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Failed to create new SessionContext: {e:?}"
+                        ))
+                    })?;
 
             Ok(Response::new(ExecuteQueryResult {
                 job_id: "NA".to_owned(),

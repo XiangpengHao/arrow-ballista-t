@@ -472,12 +472,11 @@ impl SchedulerTest {
         self.scheduler.pending_tasks()
     }
 
-    pub async fn ctx(&self) -> Result<Arc<SessionContext>> {
+    pub fn ctx(&self) -> Result<Arc<SessionContext>> {
         self.scheduler
             .state
             .session_manager
             .create_session(&self.ballista_config)
-            .await
     }
 
     pub async fn submit(
@@ -491,8 +490,7 @@ impl SchedulerTest {
             .scheduler
             .state
             .session_manager
-            .create_session(&self.ballista_config)
-            .await?;
+            .create_session(&self.ballista_config)?;
 
         self.scheduler
             .submit_job(job_id, job_name, ctx, plan)
@@ -616,8 +614,7 @@ impl SchedulerTest {
             .scheduler
             .state
             .session_manager
-            .create_session(&self.ballista_config)
-            .await?;
+            .create_session(&self.ballista_config)?;
 
         self.scheduler
             .submit_job(job_id, job_name, ctx, plan)

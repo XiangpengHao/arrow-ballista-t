@@ -188,19 +188,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     /// Enqueue a job for scheduling
-    pub async fn queue_job(
-        &self,
-        job_id: &str,
-        job_name: &str,
-        queued_at: u64,
-    ) -> Result<()> {
+    pub fn queue_job(&self, job_id: &str, job_name: &str, queued_at: u64) -> Result<()> {
         self.state.accept_job(job_id, job_name, queued_at)
     }
 
     /// Generate an ExecutionGraph for the job and save it to the persistent state.
     /// By default, this job will be curated by the scheduler which receives it.
     /// Then we will also save it to the active execution graph
-    pub async fn submit_job(
+    pub fn submit_job(
         &self,
         job_id: &str,
         job_name: &str,

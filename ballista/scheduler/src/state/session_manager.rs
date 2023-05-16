@@ -35,7 +35,7 @@ impl SessionManager {
         Self { state }
     }
 
-    pub async fn update_session(
+    pub fn update_session(
         &self,
         session_id: &str,
         config: &BallistaConfig,
@@ -43,14 +43,11 @@ impl SessionManager {
         self.state.update_session(session_id, config)
     }
 
-    pub async fn create_session(
-        &self,
-        config: &BallistaConfig,
-    ) -> Result<Arc<SessionContext>> {
+    pub fn create_session(&self, config: &BallistaConfig) -> Result<Arc<SessionContext>> {
         self.state.create_session(config)
     }
 
-    pub async fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>> {
+    pub fn get_session(&self, session_id: &str) -> Result<Arc<SessionContext>> {
         self.state.get_session(session_id)
     }
 }

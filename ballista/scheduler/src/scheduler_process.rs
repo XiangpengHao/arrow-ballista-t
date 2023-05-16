@@ -16,8 +16,6 @@
 // under the License.
 
 use anyhow::{Context, Result};
-#[cfg(feature = "flight-sql")]
-use arrow_flight::flight_service_server::FlightServiceServer;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
@@ -37,8 +35,6 @@ use crate::api::{get_routes, EitherBody, Error};
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 
-#[cfg(feature = "flight-sql")]
-use crate::flight_sql::FlightSqlServiceImpl;
 use crate::metrics::default_metrics_collector;
 use crate::scheduler_server::SchedulerServer;
 
@@ -76,11 +72,6 @@ pub async fn start_server(
                 SchedulerGrpcServer::new(scheduler_server.clone());
 
             let tonic_builder = create_grpc_server().add_service(scheduler_grpc_server);
-
-            #[cfg(feature = "flight-sql")]
-            let tonic_builder = tonic_builder.add_service(FlightServiceServer::new(
-                FlightSqlServiceImpl::new(scheduler_server.clone()),
-            ));
 
             let mut tonic = tonic_builder.into_service();
 

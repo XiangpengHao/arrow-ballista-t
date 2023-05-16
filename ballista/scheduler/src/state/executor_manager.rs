@@ -106,7 +106,7 @@ impl ExecutorManager {
         }
     }
 
-    pub async fn init(&self) -> Result<()> {
+    pub fn init(&self) -> Result<()> {
         self.cluster_state.init()?;
 
         Ok(())
@@ -115,7 +115,7 @@ impl ExecutorManager {
     /// Reserve up to n executor task slots. Once reserved these slots will not be available
     /// for scheduling.
     /// This operation is atomic, so if this method return an Err, no slots have been reserved.
-    pub async fn reserve_slots(&self, n: u32) -> Result<Vec<ExecutorReservation>> {
+    pub fn reserve_slots(&self, n: u32) -> Result<Vec<ExecutorReservation>> {
         let alive_executors = self.get_alive_executors_within_one_minute();
 
         debug!("Alive executors: {alive_executors:?}");
@@ -126,7 +126,7 @@ impl ExecutorManager {
 
     /// Returned reserved task slots to the pool of available slots. This operation is atomic
     /// so either the entire pool of reserved task slots it returned or none are.
-    pub async fn cancel_reservations(
+    pub fn cancel_reservations(
         &self,
         reservations: Vec<ExecutorReservation>,
     ) -> Result<()> {
@@ -372,8 +372,7 @@ impl ExecutorManager {
         &self,
         heartbeat: ExecutorHeartbeat,
     ) -> Result<()> {
-        self.cluster_state
-            .save_executor_heartbeat(heartbeat.clone());
+        self.cluster_state.save_executor_heartbeat(heartbeat);
 
         Ok(())
     }
@@ -509,7 +508,7 @@ mod test {
         }
 
         // Reserve all the slots
-        let reservations = executor_manager.reserve_slots(40).await?;
+        let reservations = executor_manager.reserve_slots(40)?;
 
         assert_eq!(
             reservations.len(),
@@ -518,10 +517,10 @@ mod test {
         );
 
         // Now cancel them
-        executor_manager.cancel_reservations(reservations).await?;
+        executor_manager.cancel_reservations(reservations)?;
 
         // Now reserve again
-        let reservations = executor_manager.reserve_slots(40).await?;
+        let reservations = executor_manager.reserve_slots(40)?;
 
         assert_eq!(
             reservations.len(),
@@ -557,27 +556,25 @@ mod test {
         }
 
         // Reserve all the slots
-        let reservations = executor_manager.reserve_slots(30).await?;
+        let reservations = executor_manager.reserve_slots(30)?;
 
         assert_eq!(reservations.len(), 30);
 
         // Try to reserve 30 more. Only ten are available though so we should only get 10
-        let more_reservations = executor_manager.reserve_slots(30).await?;
+        let more_reservations = executor_manager.reserve_slots(30)?;
 
         assert_eq!(more_reservations.len(), 10);
 
         // Now cancel them
-        executor_manager.cancel_reservations(reservations).await?;
-        executor_manager
-            .cancel_reservations(more_reservations)
-            .await?;
+        executor_manager.cancel_reservations(reservations)?;
+        executor_manager.cancel_reservations(more_reservations)?;
 
         // Now reserve again
-        let reservations = executor_manager.reserve_slots(40).await?;
+        let reservations = executor_manager.reserve_slots(40)?;
 
         assert_eq!(reservations.len(), 40);
 
-        let more_reservations = executor_manager.reserve_slots(30).await?;
+        let more_reservations = executor_manager.reserve_slots(30)?;
 
         assert_eq!(more_reservations.len(), 0);
 
@@ -617,7 +614,7 @@ mod test {
                 let executor_manager = executor_manager.clone();
                 let sender = sender.clone();
                 tokio::task::spawn(async move {
-                    let reservations = executor_manager.reserve_slots(40).await;
+                    let reservations = executor_manager.reserve_slots(40);
                     sender.send(reservations).await.unwrap();
                 });
             }
@@ -662,7 +659,7 @@ mod test {
         }
 
         // All slots should be reserved
-        let reservations = executor_manager.reserve_slots(1).await?;
+        let reservations = executor_manager.reserve_slots(1)?;
 
         assert_eq!(reservations.len(), 0);
 
@@ -706,7 +703,7 @@ mod test {
             })
             .await?;
 
-        let reservations = executor_manager.reserve_slots(8).await?;
+        let reservations = executor_manager.reserve_slots(8)?;
 
         assert_eq!(reservations.len(), 4, "Expected only four reservations");
 

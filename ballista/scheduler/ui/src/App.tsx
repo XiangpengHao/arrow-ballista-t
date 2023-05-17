@@ -38,37 +38,37 @@ const App: React.FunctionComponent<any> = () => {
   const [jobs, setJobs] = useState(undefined);
   const [executors, setExecutors] = useState(undefined);
 
-  function getSchedulerState() {
-    return fetch(`/api/state`, {
+  async function getSchedulerState() {
+    const res = await fetch(`/api/state`, {
       method: "POST",
       headers: {
         Accept: "application/json",
       },
-    })
-      .then((res) => res.json())
-      .then((res) => setSchedulerState(res));
+    });
+    const res_1 = await res.json();
+    return setSchedulerState(res_1);
   }
 
-  function getJobs() {
-    return fetch(`/api/jobs`, {
+  async function getJobs() {
+    const res = await fetch(`/api/jobs`, {
       method: "POST",
       headers: {
         Accept: "application/json",
       },
-    })
-      .then((res) => res.json())
-      .then((res) => setJobs(res));
+    });
+    const res_1 = await res.json();
+    return setJobs(res_1);
   }
 
-  function getExecutors() {
-    return fetch(`/api/executors`, {
+  async function getExecutors() {
+    const res = await fetch(`/api/executors`, {
       method: "POST",
       headers: {
         Accept: "application/json",
       },
-    })
-      .then((res) => res.json())
-      .then((res) => setExecutors(res));
+    });
+    const res_1 = await res.json();
+    return setExecutors(res_1);
   }
 
   useEffect(() => {
@@ -90,7 +90,7 @@ const App: React.FunctionComponent<any> = () => {
             </TabList>
             <TabPanels>
               <TabPanel>
-                <QueriesList queries={jobs} />
+                <QueriesList queries={jobs} fetchJobs={getJobs} />
               </TabPanel>
               <TabPanel>
                 <ExecutorsList executors={executors} />

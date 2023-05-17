@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@hpcc-js/wasm": "^1.20.0",
     "@chakra-ui/icons": "^2.0.19",
     "@chakra-ui/react": "^2.6.1",
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
+    "@hpcc-js/wasm": "^1.20.0",
     "@testing-library/jest-dom": "^5.11.4",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.4.3",
@@ -26,6 +26,7 @@
     "react-scripts": "5.0.1",
     "react-table": "^7.6.3",
     "react-timeago": "^7.1.0",
+    "react-zoom-pan-pinch": "^3.0.7",
     "typescript": "^5.0.4",
     "web-vitals": "^3.3.1"
   },

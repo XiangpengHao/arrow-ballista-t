@@ -56,7 +56,6 @@ use ballista_core::utils::{
 };
 use ballista_core::BALLISTA_VERSION;
 
-use crate::execution_engine::ExecutionEngine;
 use crate::executor::{Executor, TasksDrainedFuture};
 use crate::executor_server;
 use crate::executor_server::TERMINATING;
@@ -83,9 +82,6 @@ pub struct ExecutorProcessConfig {
     pub log_rotation_policy: LogRotationPolicy,
     pub job_data_ttl_seconds: u64,
     pub job_data_clean_up_interval_seconds: u64,
-    /// Optional execution engine to use to execute physical plans, will default to
-    /// DataFusion if none is provided.
-    pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
 }
 
 impl Debug for ExecutorProcessConfig {
@@ -215,7 +211,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         runtime,
         metrics_collector,
         concurrent_tasks,
-        opt.execution_engine,
     ));
 
     let connect_timeout = opt.scheduler_connect_timeout_seconds as u64;

@@ -28,7 +28,7 @@ use ballista_core::error::Result;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, JobStatus, MultiTaskDefinition, TaskDefinition, TaskId, TaskStatus,
+    self, JobStatus, MultiTaskDefinition, TaskId, TaskStatus,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 use ballista_core::serde::BallistaCodec;
@@ -495,57 +495,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         } else {
             warn!("Fail to find job {} in the cache", job_id);
             Ok(0)
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn prepare_task_definition(
-        &self,
-        task: TaskDescription,
-    ) -> Result<TaskDefinition> {
-        debug!("Preparing task definition for {:?}", task);
-
-        let job_id = task.partition.job_id.clone();
-        let stage_id = task.partition.stage_id;
-
-        if let Some(mut job_info) = self.active_job_cache.get_mut(&job_id) {
-            let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id) {
-                plan.clone()
-            } else {
-                let mut plan_buf: Vec<u8> = vec![];
-                let plan_proto = U::try_from_physical_plan(
-                    task.plan,
-                    self.codec.physical_extension_codec(),
-                )?;
-                plan_proto.try_encode(&mut plan_buf)?;
-
-                job_info
-                    .encoded_stage_plans
-                    .insert(stage_id, plan_buf.clone());
-
-                plan_buf
-            };
-
-            let task_definition = TaskDefinition {
-                task_id: task.task_id as u32,
-                task_attempt_num: task.task_attempt as u32,
-                job_id,
-                stage_id: stage_id as u32,
-                stage_attempt_num: task.stage_attempt_num as u32,
-                partition_id: task.partition.partition_id as u32,
-                plan,
-                session_id: task.session_id,
-                launch_time: SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as u64,
-                props: vec![],
-            };
-            Ok(task_definition)
-        } else {
-            Err(BallistaError::General(format!(
-                "Cannot prepare task definition for job {job_id} which is not in active cache"
-            )))
         }
     }
 

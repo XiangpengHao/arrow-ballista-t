@@ -148,12 +148,16 @@ export const ActionsCell = (props: any) => {
         <ModalOverlay />
         <ModalContent>
           <ModalHeader textAlign={"center"}>
-            Graph for {props.value.job_id} job
+            {props.value.job_name} ({props.value.job_id})
           </ModalHeader>
           <ModalCloseButton />
-          <ModalBody margin="auto" style={{ width: "800px", height: "100%" }}>
-            <TransformWrapper initialPositionX={0}
-              initialPositionY={0} zoomAnimation={{ animationTime: 100 }} >
+          <ModalBody margin="auto" style={{
+            width: "1200px", height: "100%", backgroundColor: '#aeaeae', padding: "0", display: 'flex',
+            justifyContent: 'center', flexDirection: 'column',
+            alignItems: 'center'
+          }}>
+            <TransformWrapper initialPositionX={100}
+              initialPositionY={0} zoomAnimation={{ animationTime: 100 }}>
               {({ zoomIn, zoomOut, resetTransform, ...rest }) => (
                 <React.Fragment>
                   <div className="tools">
@@ -168,7 +172,7 @@ export const ActionsCell = (props: any) => {
                     </button>
                   </div>
                   <TransformComponent>
-                    <SVG innerRef={ref} src={svg_data} width="800" height="500" />
+                    <SVG innerRef={ref} src={svg_data} style={{ width: '1000', height: '1000' }} />
                   </TransformComponent>
                 </React.Fragment>
               )}
@@ -181,7 +185,7 @@ export const ActionsCell = (props: any) => {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </Flex>
+    </Flex >
   );
 };
 
@@ -288,6 +292,7 @@ const columns: Column<Query>[] = [
     Header: "Actions",
     accessor: (row) => ({
       job_id: (row as Query).job_id,
+      job_name: (row as Query).job_name,
       status: (row as Query).job_status,
     }),
     id: "action_cell",

@@ -264,7 +264,7 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
     }
 }
 
-fn get_elapsed_compute_nanos(metrics: &[MetricsSet]) -> String {
+pub(crate) fn get_elapsed_compute_nanos(metrics: &[MetricsSet]) -> String {
     let nanos: usize = metrics
         .iter()
         .flat_map(|vec| {

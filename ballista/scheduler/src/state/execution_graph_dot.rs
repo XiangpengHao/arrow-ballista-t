@@ -17,6 +17,7 @@
 
 //! Utilities for producing dot diagrams from execution graphs
 
+use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
     ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec,
@@ -44,6 +45,8 @@ use std::collections::HashMap;
 use std::fmt::{self, Write};
 use std::sync::Arc;
 
+use super::execution_graph::ExecutionStage;
+
 /// Utility for producing dot diagrams from execution graphs
 pub struct ExecutionGraphDot<'a> {
     graph: &'a ExecutionGraph,
@@ -53,7 +56,7 @@ impl<'a> ExecutionGraphDot<'a> {
     /// Create a DOT graph from the provided ExecutionGraph
     pub fn generate(graph: &'a ExecutionGraph) -> Result<String, fmt::Error> {
         let mut dot = Self { graph };
-        dot._generate()
+        dot.generate_inner()
     }
 
     /// Create a DOT graph for one query stage from the provided ExecutionGraph
@@ -63,7 +66,7 @@ impl<'a> ExecutionGraphDot<'a> {
     ) -> Result<String, fmt::Error> {
         if let Some(stage) = graph.stages().get(&stage_id) {
             let mut dot = String::new();
-            writeln!(&mut dot, "digraph G {{")?;
+            writeln!(&mut dot, "digraph \"{}\" {{", graph.job_name())?;
             let stage_name = format!("stage_{stage_id}");
             write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?;
             writeln!(&mut dot, "}}")?;
@@ -73,7 +76,7 @@ impl<'a> ExecutionGraphDot<'a> {
         }
     }
 
-    fn _generate(&mut self) -> Result<String, fmt::Error> {
+    fn generate_inner(&mut self) -> Result<String, fmt::Error> {
         // sort the stages by key for deterministic output for tests
         let stages = self.graph.stages();
         let mut stage_ids: Vec<usize> = stages.keys().cloned().collect();
@@ -81,7 +84,7 @@ impl<'a> ExecutionGraphDot<'a> {
 
         let mut dot = String::new();
 
-        writeln!(&mut dot, "digraph G {{")?;
+        writeln!(&mut dot, "digraph \"{}\" {{", self.graph.job_name())?;
 
         let mut cluster = 0;
         let mut stage_meta = vec![];
@@ -89,13 +92,23 @@ impl<'a> ExecutionGraphDot<'a> {
         #[allow(clippy::explicit_counter_loop)]
         for id in &stage_ids {
             let stage = stages.get(id).unwrap(); // safe unwrap
+
+            let elapsed_time = match stage {
+                ExecutionStage::Successful(s) => {
+                    let s = get_elapsed_compute_nanos(&s.stage_metrics);
+                    format!("({})", s)
+                }
+                _ => "".to_string(),
+            };
+
             let stage_name = format!("stage_{id}");
             writeln!(&mut dot, "\tsubgraph cluster{cluster} {{")?;
             writeln!(
                 &mut dot,
-                "\t\tlabel = \"Stage {} [{}]\";",
+                "\t\tlabel = \"Stage {} [{}{}]\";",
                 id,
-                stage.variant_name()
+                stage.variant_name(),
+                elapsed_time
             )?;
             stage_meta.push(write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?);
             cluster += 1;
@@ -429,7 +442,7 @@ mod tests {
         let dot = ExecutionGraphDot::generate(&graph)
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
-        let expected = r#"digraph G {
+        let expected = r#"digraph "job_name" {
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
 		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
@@ -500,7 +513,7 @@ filter_expr="]
         let dot = ExecutionGraphDot::generate_for_query_stage(&graph, 3)
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
-        let expected = r#"digraph G {
+        let expected = r#"digraph "job_name" {
 		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions]"]
 		stage_3_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_3_0_0_0 [shape=box, label="HashJoin
@@ -528,7 +541,7 @@ filter_expr="]
         let dot = ExecutionGraphDot::generate(&graph)
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
-        let expected = r#"digraph G {
+        let expected = r#"digraph "job_name" {
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
 		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
@@ -590,7 +603,7 @@ filter_expr="]
         let dot = ExecutionGraphDot::generate_for_query_stage(&graph, 4)
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
-        let expected = r#"digraph G {
+        let expected = r#"digraph "job_name" {
 		stage_4_0 [shape=box, label="ShuffleWriter [48 partitions]"]
 		stage_4_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_4_0_0_0 [shape=box, label="HashJoin

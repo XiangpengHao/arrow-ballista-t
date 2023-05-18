@@ -23,6 +23,8 @@ use std::{
 use warp::filters::BoxedFilter;
 use warp::{Buf, Filter, Reply};
 
+pub(crate) use handlers::get_elapsed_compute_nanos;
+
 pub enum EitherBody<A, B> {
     Left(A),
     Right(B),

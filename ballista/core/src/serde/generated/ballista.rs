@@ -858,10 +858,10 @@ pub struct UpdateTaskStatusResult {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecuteQueryParams {
-    #[prost(bytes = "vec", optional, tag = "1")]
-    pub logical_plan: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
-    #[prost(string, optional, tag = "2")]
-    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(bytes = "vec", tag = "1")]
+    pub logical_plan: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, tag = "2")]
+    pub session_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
     pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
 }
@@ -877,6 +877,18 @@ pub struct ExecuteQueryResult {
     #[prost(string, tag = "1")]
     pub job_id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub session_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSessionParams {
+    #[prost(message, repeated, tag = "1")]
+    pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CreateSessionResult {
+    #[prost(string, tag = "1")]
     pub session_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1294,6 +1306,33 @@ pub mod scheduler_grpc_client {
                 );
             self.inner.unary(req, path, codec).await
         }
+        pub async fn create_session(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CreateSessionParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::CreateSessionResult>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/ballista.protobuf.SchedulerGrpc/CreateSession",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("ballista.protobuf.SchedulerGrpc", "CreateSession"),
+                );
+            self.inner.unary(req, path, codec).await
+        }
         pub async fn get_job_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetJobStatusParams>,
@@ -1664,6 +1703,13 @@ pub mod scheduler_grpc_server {
             tonic::Response<super::ExecuteQueryResult>,
             tonic::Status,
         >;
+        async fn create_session(
+            &self,
+            request: tonic::Request<super::CreateSessionParams>,
+        ) -> std::result::Result<
+            tonic::Response<super::CreateSessionResult>,
+            tonic::Status,
+        >;
         async fn get_job_status(
             &self,
             request: tonic::Request<super::GetJobStatusParams>,
@@ -1985,6 +2031,52 @@ pub mod scheduler_grpc_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ExecuteQuerySvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/ballista.protobuf.SchedulerGrpc/CreateSession" => {
+                    #[allow(non_camel_case_types)]
+                    struct CreateSessionSvc<T: SchedulerGrpc>(pub Arc<T>);
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::CreateSessionParams>
+                    for CreateSessionSvc<T> {
+                        type Response = super::CreateSessionResult;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CreateSessionParams>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                (*inner).create_session(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = CreateSessionSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

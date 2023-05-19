@@ -172,7 +172,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
         })?;
 
         let query = ExecuteQueryParams {
-            logical_plan: Some(buf),
+            logical_plan: buf,
             settings: self
                 .config
                 .settings()
@@ -182,7 +182,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
                     value: v.to_owned(),
                 })
                 .collect::<Vec<_>>(),
-            session_id: Some(self.session_id.clone()),
+            session_id: self.session_id.clone(),
         };
 
         let stream = futures::stream::once(

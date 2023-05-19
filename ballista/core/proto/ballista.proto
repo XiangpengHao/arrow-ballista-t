@@ -512,8 +512,8 @@ message UpdateTaskStatusResult {
 }
 
 message ExecuteQueryParams {
-  optional bytes logical_plan = 1;
-  optional string session_id = 2;
+  bytes logical_plan = 1;
+  string session_id = 2;
   repeated KeyValuePair settings = 3;
 }
 
@@ -524,6 +524,14 @@ message ExecuteSqlParams {
 message ExecuteQueryResult {
   string job_id = 1;
   string session_id = 2;
+}
+
+message CreateSessionParams {
+  repeated KeyValuePair settings = 1;
+}
+
+message CreateSessionResult {
+  string session_id = 1;
 }
 
 message GetJobStatusParams {
@@ -655,6 +663,8 @@ service SchedulerGrpc {
   rpc GetFileMetadata (GetFileMetadataParams) returns (GetFileMetadataResult) {}
 
   rpc ExecuteQuery (ExecuteQueryParams) returns (ExecuteQueryResult) {}
+
+  rpc CreateSession (CreateSessionParams) returns (CreateSessionResult) {}
 
   rpc GetJobStatus (GetJobStatusParams) returns (GetJobStatusResult) {}
 

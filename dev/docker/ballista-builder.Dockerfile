@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-FROM rust:1-buster
+FROM ubuntu:22.04 
 
 ARG EXT_UID
 
@@ -24,9 +24,10 @@ ENV RUST_BACKTRACE=full
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-    curl -sL https://deb.nodesource.com/setup_lts.x | bash -  && \
-    apt-get -y install libssl-dev openssl zlib1g zlib1g-dev libpq-dev cmake protobuf-compiler netcat curl unzip \
-    nodejs && \
+    apt-get -y install libssl-dev openssl zlib1g zlib1g-dev libpq-dev cmake protobuf-compiler netcat curl unzip
+
+RUN curl -sL https://deb.nodesource.com/setup_lts.x | bash -  && \
+    apt-get install -y nodejs && \
     npm install -g yarn
 
 # create build user with same UID as 
@@ -34,12 +35,11 @@ RUN adduser -q -u $EXT_UID builder --home /home/builder && \
     mkdir -p /home/builder/workspace
 USER builder
 
-ENV NODE_VER=18.9.0
 ENV HOME=/home/builder
 ENV PATH=$HOME/.cargo/bin:$PATH
 
 # prepare rust
-RUN rustup update && \
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y && \
     rustup component add rustfmt && \
     cargo install cargo-chef --version 0.1.34
 

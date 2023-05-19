@@ -21,11 +21,11 @@ use std::convert::TryInto;
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
 use ballista_core::serde::protobuf::{
     CancelJobParams, CancelJobResult, CleanJobDataParams, CleanJobDataResult,
-    ExecuteQueryParams, ExecuteQueryResult, ExecutorHeartbeat, ExecutorStoppedParams,
-    ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
-    GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
-    RegisterExecutorParams, RegisterExecutorResult, UpdateTaskStatusParams,
-    UpdateTaskStatusResult,
+    CreateSessionParams, CreateSessionResult, ExecuteQueryParams, ExecuteQueryResult,
+    ExecutorHeartbeat, ExecutorStoppedParams, ExecutorStoppedResult,
+    GetFileMetadataParams, GetFileMetadataResult, GetJobStatusParams, GetJobStatusResult,
+    HeartBeatParams, HeartBeatResult, RegisterExecutorParams, RegisterExecutorResult,
+    UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -232,123 +232,102 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         }))
     }
 
+    async fn create_session(
+        &self,
+        request: Request<CreateSessionParams>,
+    ) -> Result<Response<CreateSessionResult>, Status> {
+        let settings = request.into_inner();
+        // parse config for new session
+        let mut config_builder = BallistaConfig::builder();
+        for kv_pair in &settings.settings {
+            config_builder = config_builder.set(&kv_pair.key, &kv_pair.value);
+        }
+        let config = config_builder.build().map_err(|e| {
+            let msg = format!("Could not parse configs: {e}");
+            error!("{}", msg);
+            Status::internal(msg)
+        })?;
+        let session =
+            self.state
+                .session_manager
+                .create_session(&config)
+                .map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to create new SessionContext: {e:?}"
+                    ))
+                })?;
+
+        Ok(Response::new(CreateSessionResult {
+            session_id: session.session_id(),
+        }))
+    }
+
     async fn execute_query(
         &self,
         request: Request<ExecuteQueryParams>,
     ) -> Result<Response<ExecuteQueryResult>, Status> {
         let query_params = request.into_inner();
-        if let ExecuteQueryParams {
-            logical_plan: Some(query),
+        let ExecuteQueryParams {
+            logical_plan: query,
             settings,
             session_id,
-        } = query_params
-        {
-            // parse config
-            let mut config_builder = BallistaConfig::builder();
-            for kv_pair in &settings {
-                config_builder = config_builder.set(&kv_pair.key, &kv_pair.value);
-            }
-            let config = config_builder.build().map_err(|e| {
-                let msg = format!("Could not parse configs: {e}");
-                error!("{}", msg);
-                Status::internal(msg)
-            })?;
+        } = query_params;
 
-            let (session_id, session_ctx) = match session_id {
-                Some(session_id) => {
-                    let ctx = self
-                        .state
-                        .session_manager
-                        .update_session(&session_id, &config)
-                        .map_err(|e| {
-                            Status::internal(format!(
-                                "Failed to load SessionContext for session ID {session_id}: {e:?}"
-                            ))
-                        })?;
-                    (session_id, ctx)
-                }
-                _ => {
-                    let ctx =
-                        self.state.session_manager.create_session(&config).map_err(
-                            |e| {
-                                Status::internal(format!(
-                                    "Failed to create SessionContext: {e:?}"
-                                ))
-                            },
-                        )?;
-
-                    (ctx.session_id(), ctx)
-                }
-            };
-
-            let plan = {
-                T::try_decode(query.as_slice())
-                    .and_then(|m| {
-                        m.try_into_logical_plan(
-                            session_ctx.deref(),
-                            self.state.codec.logical_extension_codec(),
-                        )
-                    })
-                    .map_err(|e| {
-                        let msg = format!("Could not parse logical plan protobuf: {e}");
-                        error!("{}", msg);
-                        Status::internal(msg)
-                    })?
-            };
-
-            debug!("Received plan for execution: {:?}", plan);
-
-            let job_id = self.state.task_manager.generate_job_id();
-            let job_name = config
-                .settings()
-                .get(BALLISTA_JOB_NAME)
-                .cloned()
-                .unwrap_or_default();
-
-            self.submit_job(&job_id, &job_name, session_ctx, &plan)
-                .await
-                .map_err(|e| {
-                    let msg =
-                        format!("Failed to send JobQueued event for {job_id}: {e:?}");
-                    error!("{}", msg);
-
-                    Status::internal(msg)
-                })?;
-
-            Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
-        } else if let ExecuteQueryParams {
-            logical_plan: None,
-            settings,
-            session_id: None,
-        } = query_params
-        {
-            // parse config for new session
-            let mut config_builder = BallistaConfig::builder();
-            for kv_pair in &settings {
-                config_builder = config_builder.set(&kv_pair.key, &kv_pair.value);
-            }
-            let config = config_builder.build().map_err(|e| {
-                let msg = format!("Could not parse configs: {e}");
-                error!("{}", msg);
-                Status::internal(msg)
-            })?;
-            let session =
-                self.state
-                    .session_manager
-                    .create_session(&config)
-                    .map_err(|e| {
-                        Status::internal(format!(
-                            "Failed to create new SessionContext: {e:?}"
-                        ))
-                    })?;
-
-            Ok(Response::new(ExecuteQueryResult {
-                job_id: "NA".to_owned(),
-                session_id: session.session_id(),
-            }))
-        } else {
-            Err(Status::internal("Error parsing request"))
+        // parse config
+        let mut config_builder = BallistaConfig::builder();
+        for kv_pair in &settings {
+            config_builder = config_builder.set(&kv_pair.key, &kv_pair.value);
         }
+        let config = config_builder.build().map_err(|e| {
+            let msg = format!("Could not parse configs: {e}");
+            error!("{}", msg);
+            Status::internal(msg)
+        })?;
+
+        let session_ctx = self
+            .state
+            .session_manager
+            .get_session(&session_id)
+            .map_err(|e| {
+                Status::internal(format!(
+                    "Failed to load SessionContext for session ID {session_id}: {e:?}"
+                ))
+            })?;
+
+        let plan = {
+            T::try_decode(query.as_slice())
+                .and_then(|m| {
+                    m.try_into_logical_plan(
+                        session_ctx.deref(),
+                        self.state.codec.logical_extension_codec(),
+                    )
+                })
+                .map_err(|e| {
+                    let msg = format!("Could not parse logical plan protobuf: {e}");
+                    error!("{}", msg);
+                    Status::internal(msg)
+                })?
+        };
+
+        debug!("Received plan for execution: {:?}", plan);
+
+        let job_id = self.state.task_manager.generate_job_id();
+        let job_name = config
+            .settings()
+            .get(BALLISTA_JOB_NAME)
+            .cloned()
+            .unwrap_or_default();
+
+        self.submit_job(&job_id, &job_name, session_ctx, &plan)
+            .await
+            .map_err(|e| {
+                let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");
+                error!("{}", msg);
+
+                Status::internal(msg)
+            })?;
+
+        Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
     }
 
     async fn get_job_status(

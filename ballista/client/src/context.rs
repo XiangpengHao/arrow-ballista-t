@@ -104,7 +104,7 @@ impl BallistaContext {
 
         let remote_session_id = scheduler
             .execute_query(ExecuteQueryParams {
-                optional_logical_plan: None,
+                logical_plan: None,
                 settings: config
                     .settings()
                     .iter()
@@ -113,7 +113,7 @@ impl BallistaContext {
                         value: v.to_owned(),
                     })
                     .collect::<Vec<_>>(),
-                optional_session_id: None,
+                session_id: None,
             })
             .await
             .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?

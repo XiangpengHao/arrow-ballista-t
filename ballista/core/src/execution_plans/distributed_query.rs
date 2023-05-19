@@ -17,9 +17,6 @@
 
 use crate::client::BallistaClient;
 use crate::config::BallistaConfig;
-use crate::serde::protobuf::execute_query_params::{
-    OptionalLogicalPlan, OptionalSessionId,
-};
 use crate::serde::protobuf::{
     job_status, scheduler_grpc_client::SchedulerGrpcClient, ExecuteQueryParams,
     GetJobStatusParams, GetJobStatusResult, KeyValuePair, PartitionLocation,
@@ -175,7 +172,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
         })?;
 
         let query = ExecuteQueryParams {
-            optional_logical_plan: Some(OptionalLogicalPlan::LogicalPlan(buf)),
+            logical_plan: Some(buf),
             settings: self
                 .config
                 .settings()
@@ -185,9 +182,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
                     value: v.to_owned(),
                 })
                 .collect::<Vec<_>>(),
-            optional_session_id: Some(OptionalSessionId::SessionId(
-                self.session_id.clone(),
-            )),
+            session_id: Some(self.session_id.clone()),
         };
 
         let stream = futures::stream::once(

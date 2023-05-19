@@ -485,27 +485,14 @@ pub struct ExecutorMetadata {
 pub struct ExecutorRegistration {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub host: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(uint32, tag = "3")]
     pub port: u32,
     #[prost(uint32, tag = "4")]
     pub grpc_port: u32,
     #[prost(message, optional, tag = "5")]
     pub specification: ::core::option::Option<ExecutorSpecification>,
-    /// "optional" keyword is stable in protoc 3.15 but prost is still on 3.14 (see <https://github.com/tokio-rs/prost/issues/430> and <https://github.com/tokio-rs/prost/pull/455>)
-    /// this syntax is ugly but is binary compatible with the "optional" keyword (see <https://stackoverflow.com/questions/42622015/how-to-define-an-optional-field-in-protobuf-3>)
-    #[prost(oneof = "executor_registration::OptionalHost", tags = "2")]
-    pub optional_host: ::core::option::Option<executor_registration::OptionalHost>,
-}
-/// Nested message and enum types in `ExecutorRegistration`.
-pub mod executor_registration {
-    /// "optional" keyword is stable in protoc 3.15 but prost is still on 3.14 (see <https://github.com/tokio-rs/prost/issues/430> and <https://github.com/tokio-rs/prost/pull/455>)
-    /// this syntax is ugly but is binary compatible with the "optional" keyword (see <https://stackoverflow.com/questions/42622015/how-to-define-an-optional-field-in-protobuf-3>)
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum OptionalHost {
-        #[prost(string, tag = "2")]
-        Host(::prost::alloc::string::String),
-    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -871,31 +858,12 @@ pub struct UpdateTaskStatusResult {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecuteQueryParams {
+    #[prost(bytes = "vec", optional, tag = "1")]
+    pub logical_plan: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+    #[prost(string, optional, tag = "2")]
+    pub session_id: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "3")]
     pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
-    #[prost(oneof = "execute_query_params::OptionalLogicalPlan", tags = "1")]
-    pub optional_logical_plan: ::core::option::Option<
-        execute_query_params::OptionalLogicalPlan,
-    >,
-    #[prost(oneof = "execute_query_params::OptionalSessionId", tags = "2")]
-    pub optional_session_id: ::core::option::Option<
-        execute_query_params::OptionalSessionId,
-    >,
-}
-/// Nested message and enum types in `ExecuteQueryParams`.
-pub mod execute_query_params {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum OptionalLogicalPlan {
-        #[prost(bytes, tag = "1")]
-        LogicalPlan(::prost::alloc::vec::Vec<u8>),
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum OptionalSessionId {
-        #[prost(string, tag = "2")]
-        SessionId(::prost::alloc::string::String),
-    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

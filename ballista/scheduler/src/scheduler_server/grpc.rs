@@ -16,12 +16,8 @@
 // under the License.
 
 use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
-use ballista_core::serde::protobuf::execute_query_params::{
-    OptionalLogicalPlan, OptionalSessionId,
-};
 use std::convert::TryInto;
 
-use ballista_core::serde::protobuf::executor_registration::OptionalHost;
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
 use ballista_core::serde::protobuf::{
     CancelJobParams, CancelJobResult, CleanJobDataParams, CleanJobDataResult,
@@ -68,10 +64,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             let metadata = ExecutorMetadata {
                 id: metadata.id,
                 host: metadata
-                    .optional_host
-                    .map(|h| match h {
-                        OptionalHost::Host(host) => host,
-                    })
+                    .host
                     .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
                 port: metadata.port as u16,
                 grpc_port: metadata.grpc_port as u16,
@@ -115,10 +108,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 let metadata = ExecutorMetadata {
                     id: metadata.id,
                     host: metadata
-                        .optional_host
-                        .map(|h| match h {
-                            OptionalHost::Host(host) => host,
-                        })
+                        .host
                         .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
                     port: metadata.port as u16,
                     grpc_port: metadata.grpc_port as u16,
@@ -248,9 +238,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
     ) -> Result<Response<ExecuteQueryResult>, Status> {
         let query_params = request.into_inner();
         if let ExecuteQueryParams {
-            optional_logical_plan: Some(query),
+            logical_plan: Some(query),
             settings,
-            optional_session_id,
+            session_id,
         } = query_params
         {
             // parse config
@@ -264,8 +254,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 Status::internal(msg)
             })?;
 
-            let (session_id, session_ctx) = match optional_session_id {
-                Some(OptionalSessionId::SessionId(session_id)) => {
+            let (session_id, session_ctx) = match session_id {
+                Some(session_id) => {
                     let ctx = self
                         .state
                         .session_manager
@@ -291,22 +281,19 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 }
             };
 
-            let plan = match query {
-                OptionalLogicalPlan::LogicalPlan(message) => {
-                    T::try_decode(message.as_slice())
-                        .and_then(|m| {
-                            m.try_into_logical_plan(
-                                session_ctx.deref(),
-                                self.state.codec.logical_extension_codec(),
-                            )
-                        })
-                        .map_err(|e| {
-                            let msg =
-                                format!("Could not parse logical plan protobuf: {e}");
-                            error!("{}", msg);
-                            Status::internal(msg)
-                        })?
-                }
+            let plan = {
+                T::try_decode(query.as_slice())
+                    .and_then(|m| {
+                        m.try_into_logical_plan(
+                            session_ctx.deref(),
+                            self.state.codec.logical_extension_codec(),
+                        )
+                    })
+                    .map_err(|e| {
+                        let msg = format!("Could not parse logical plan protobuf: {e}");
+                        error!("{}", msg);
+                        Status::internal(msg)
+                    })?
             };
 
             debug!("Received plan for execution: {:?}", plan);
@@ -330,9 +317,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
             Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
         } else if let ExecuteQueryParams {
-            optional_logical_plan: None,
+            logical_plan: None,
             settings,
-            optional_session_id: None,
+            session_id: None,
         } = query_params
         {
             // parse config for new session

@@ -16,7 +16,7 @@
 // under the License.
 
 use crate::execution_engine::QueryStageExecutor;
-use log::info;
+use log::debug;
 use std::sync::Arc;
 
 /// `ExecutorMetricsCollector` records metrics for `ShuffleWriteExec`
@@ -48,7 +48,7 @@ impl ExecutorMetricsCollector for LoggingMetricsCollector {
         partition: usize,
         plan: Arc<dyn QueryStageExecutor>,
     ) {
-        info!(
+        debug!(
             "=== [{}/{}/{}] Physical plan with metrics ===\n{:?}\n",
             job_id, stage_id, partition, plan
         );

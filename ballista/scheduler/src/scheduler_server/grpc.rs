@@ -302,15 +302,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         error!("{}", msg);
                         Status::internal(msg)
                     })?,
-                Query::Sql(sql) => session_ctx
-                    .sql(&sql)
-                    .await
-                    .and_then(|df| df.into_optimized_plan())
-                    .map_err(|e| {
-                        let msg = format!("Error parsing SQL: {e}");
-                        error!("{}", msg);
-                        Status::internal(msg)
-                    })?,
+                Query::Sql(_sql) => {
+                    panic!("SQL is not supported yet");
+                }
             };
 
             debug!("Received plan for execution: {:?}", plan);

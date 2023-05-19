@@ -315,6 +315,7 @@ impl BallistaContext {
         }
 
         let plan = ctx.state().create_logical_plan(sql).await?;
+        let plan = ctx.state().optimize(&plan).unwrap();
 
         match plan {
             LogicalPlan::Ddl(DdlStatement::CreateExternalTable(

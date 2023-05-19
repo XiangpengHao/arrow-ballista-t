@@ -52,6 +52,8 @@ pub struct ExecutionGraphDot<'a> {
     graph: &'a ExecutionGraph,
 }
 
+const DEFAULT_FONT: &str = "Courier";
+
 impl<'a> ExecutionGraphDot<'a> {
     /// Create a DOT graph from the provided ExecutionGraph
     pub fn generate(graph: &'a ExecutionGraph) -> Result<String, fmt::Error> {
@@ -67,6 +69,9 @@ impl<'a> ExecutionGraphDot<'a> {
         if let Some(stage) = graph.stages().get(&stage_id) {
             let mut dot = String::new();
             writeln!(&mut dot, "digraph \"{}\" {{", graph.job_name())?;
+            writeln!(&mut dot, "graph [fontname=\"{}\"];", DEFAULT_FONT)?;
+            writeln!(&mut dot, "node [fontname=\"{}\"];", DEFAULT_FONT)?;
+            writeln!(&mut dot, "edge [fontname=\"{}\"];", DEFAULT_FONT)?;
             let stage_name = format!("stage_{stage_id}");
             write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?;
             writeln!(&mut dot, "}}")?;
@@ -85,6 +90,9 @@ impl<'a> ExecutionGraphDot<'a> {
         let mut dot = String::new();
 
         writeln!(&mut dot, "digraph \"{}\" {{", self.graph.job_name())?;
+        writeln!(&mut dot, "graph [fontname=\"{}\"];", DEFAULT_FONT)?;
+        writeln!(&mut dot, "node [fontname=\"{}\"];", DEFAULT_FONT)?;
+        writeln!(&mut dot, "edge [fontname=\"{}\"];", DEFAULT_FONT)?;
 
         let mut cluster = 0;
         let mut stage_meta = vec![];
@@ -443,6 +451,9 @@ mod tests {
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
         let expected = r#"digraph "job_name" {
+graph [fontname="Courier"];
+node [fontname="Courier"];
+edge [fontname="Courier"];
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
 		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
@@ -514,6 +525,9 @@ filter_expr="]
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
         let expected = r#"digraph "job_name" {
+graph [fontname="Courier"];
+node [fontname="Courier"];
+edge [fontname="Courier"];
 		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions]"]
 		stage_3_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_3_0_0_0 [shape=box, label="HashJoin
@@ -542,6 +556,9 @@ filter_expr="]
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
         let expected = r#"digraph "job_name" {
+graph [fontname="Courier"];
+node [fontname="Courier"];
+edge [fontname="Courier"];
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
 		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
@@ -604,6 +621,9 @@ filter_expr="]
             .map_err(|e| BallistaError::Internal(format!("{e:?}")))?;
 
         let expected = r#"digraph "job_name" {
+graph [fontname="Courier"];
+node [fontname="Courier"];
+edge [fontname="Courier"];
 		stage_4_0 [shape=box, label="ShuffleWriter [48 partitions]"]
 		stage_4_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_4_0_0_0 [shape=box, label="HashJoin

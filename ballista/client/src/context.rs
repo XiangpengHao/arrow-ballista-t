@@ -104,7 +104,7 @@ impl BallistaContext {
 
         let remote_session_id = scheduler
             .execute_query(ExecuteQueryParams {
-                query: None,
+                optional_logical_plan: None,
                 settings: config
                     .settings()
                     .iter()

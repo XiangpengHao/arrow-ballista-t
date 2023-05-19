@@ -17,11 +17,12 @@
 
 use crate::client::BallistaClient;
 use crate::config::BallistaConfig;
-use crate::serde::protobuf::execute_query_params::OptionalSessionId;
+use crate::serde::protobuf::execute_query_params::{
+    OptionalLogicalPlan, OptionalSessionId,
+};
 use crate::serde::protobuf::{
-    execute_query_params::Query, job_status, scheduler_grpc_client::SchedulerGrpcClient,
-    ExecuteQueryParams, GetJobStatusParams, GetJobStatusResult, KeyValuePair,
-    PartitionLocation,
+    job_status, scheduler_grpc_client::SchedulerGrpcClient, ExecuteQueryParams,
+    GetJobStatusParams, GetJobStatusResult, KeyValuePair, PartitionLocation,
 };
 use crate::utils::create_grpc_client_connection;
 use datafusion::arrow::datatypes::SchemaRef;
@@ -174,7 +175,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
         })?;
 
         let query = ExecuteQueryParams {
-            query: Some(Query::LogicalPlan(buf)),
+            optional_logical_plan: Some(OptionalLogicalPlan::LogicalPlan(buf)),
             settings: self
                 .config
                 .settings()

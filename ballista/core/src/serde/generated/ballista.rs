@@ -871,11 +871,13 @@ pub struct UpdateTaskStatusResult {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecuteQueryParams {
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag = "3")]
     pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
-    #[prost(oneof = "execute_query_params::Query", tags = "1, 2")]
-    pub query: ::core::option::Option<execute_query_params::Query>,
-    #[prost(oneof = "execute_query_params::OptionalSessionId", tags = "3")]
+    #[prost(oneof = "execute_query_params::OptionalLogicalPlan", tags = "1")]
+    pub optional_logical_plan: ::core::option::Option<
+        execute_query_params::OptionalLogicalPlan,
+    >,
+    #[prost(oneof = "execute_query_params::OptionalSessionId", tags = "2")]
     pub optional_session_id: ::core::option::Option<
         execute_query_params::OptionalSessionId,
     >,
@@ -884,16 +886,14 @@ pub struct ExecuteQueryParams {
 pub mod execute_query_params {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Query {
+    pub enum OptionalLogicalPlan {
         #[prost(bytes, tag = "1")]
         LogicalPlan(::prost::alloc::vec::Vec<u8>),
-        #[prost(string, tag = "2")]
-        Sql(::prost::alloc::string::String),
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum OptionalSessionId {
-        #[prost(string, tag = "3")]
+        #[prost(string, tag = "2")]
         SessionId(::prost::alloc::string::String),
     }
 }

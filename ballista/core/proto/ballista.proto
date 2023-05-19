@@ -516,14 +516,13 @@ message UpdateTaskStatusResult {
 }
 
 message ExecuteQueryParams {
-  oneof query {
+  oneof optional_logical_plan {
     bytes logical_plan = 1;
-    string sql = 2;
-  }
+  };
   oneof optional_session_id {
-    string session_id = 3;
+    string session_id = 2;
   }
-  repeated KeyValuePair settings = 4;
+  repeated KeyValuePair settings = 3;
 }
 
 message ExecuteSqlParams {

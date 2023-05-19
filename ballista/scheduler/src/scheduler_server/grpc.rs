@@ -16,7 +16,9 @@
 // under the License.
 
 use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
-use ballista_core::serde::protobuf::execute_query_params::{OptionalSessionId, Query};
+use ballista_core::serde::protobuf::execute_query_params::{
+    OptionalLogicalPlan, OptionalSessionId,
+};
 use std::convert::TryInto;
 
 use ballista_core::serde::protobuf::executor_registration::OptionalHost;
@@ -246,7 +248,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
     ) -> Result<Response<ExecuteQueryResult>, Status> {
         let query_params = request.into_inner();
         if let ExecuteQueryParams {
-            query: Some(query),
+            optional_logical_plan: Some(query),
             settings,
             optional_session_id,
         } = query_params
@@ -290,20 +292,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             };
 
             let plan = match query {
-                Query::LogicalPlan(message) => T::try_decode(message.as_slice())
-                    .and_then(|m| {
-                        m.try_into_logical_plan(
-                            session_ctx.deref(),
-                            self.state.codec.logical_extension_codec(),
-                        )
-                    })
-                    .map_err(|e| {
-                        let msg = format!("Could not parse logical plan protobuf: {e}");
-                        error!("{}", msg);
-                        Status::internal(msg)
-                    })?,
-                Query::Sql(_sql) => {
-                    panic!("SQL is not supported yet");
+                OptionalLogicalPlan::LogicalPlan(message) => {
+                    T::try_decode(message.as_slice())
+                        .and_then(|m| {
+                            m.try_into_logical_plan(
+                                session_ctx.deref(),
+                                self.state.codec.logical_extension_codec(),
+                            )
+                        })
+                        .map_err(|e| {
+                            let msg =
+                                format!("Could not parse logical plan protobuf: {e}");
+                            error!("{}", msg);
+                            Status::internal(msg)
+                        })?
                 }
             };
 
@@ -328,7 +330,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
             Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
         } else if let ExecuteQueryParams {
-            query: None,
+            optional_logical_plan: None,
             settings,
             optional_session_id: None,
         } = query_params

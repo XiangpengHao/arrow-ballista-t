@@ -208,6 +208,11 @@ pub trait JobState: Send + Sync {
     /// Return a `Vec` of all active job IDs in the `JobState`
     fn get_jobs(&self) -> Result<HashSet<String>>;
 
+    /// Return the SQL query of the job if it exists
+    fn get_sql(&self, job_id: &str) -> Result<Option<String>>;
+
+    fn register_sql(&self, job_id: &str, sql: String);
+
     /// Fetch the job status
     fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>>;
 

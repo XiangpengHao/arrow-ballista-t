@@ -25,6 +25,7 @@ use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
+use datafusion::physical_plan::display::DisplayableExecutionPlan;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
@@ -190,6 +191,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         self.state.accept_job(job_id, job_name, queued_at)
     }
 
+    pub fn register_sql(&self, job_id: &str, sql: String) {
+        self.state.register_sql(job_id, sql)
+    }
+
     /// Generate an ExecutionGraph for the job and save it to the persistent state.
     /// By default, this job will be curated by the scheduler which receives it.
     /// Then we will also save it to the active execution graph
@@ -201,6 +206,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
     ) -> Result<()> {
+        info!(
+            "Converting execution plan into execution graph: {}",
+            DisplayableExecutionPlan::new(plan.as_ref()).indent()
+        );
+
         let mut graph = ExecutionGraph::new(
             &self.scheduler_id,
             job_id,

@@ -166,7 +166,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         job_name: &str,
         ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
+        sql: String,
     ) -> Result<()> {
+        self.state.task_manager.register_sql(job_id, sql);
         self.query_stage_event_loop
             .get_sender()?
             .post_event(QueryStageSchedulerEvent::JobQueued {

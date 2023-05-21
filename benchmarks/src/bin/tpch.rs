@@ -396,8 +396,8 @@ async fn benchmark_ballista(opt: BallistaBenchmarkOpt) -> Result<()> {
                 .await
                 .map_err(|e| DataFusionError::Plan(format!("{e:?}")))
                 .unwrap();
-            let plan = df.clone().into_optimized_plan()?;
             if opt.debug {
+                let plan = df.clone().into_optimized_plan()?;
                 println!("=== Optimized logical plan ===\n{plan:?}\n");
             }
             batches = df

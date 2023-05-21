@@ -16,10 +16,7 @@
 // under the License.
 
 import React from "react";
-import { Box, Flex, Button } from "@chakra-ui/react";
-import Logo from "./logo.svg";
-import { HiDocumentText } from "react-icons/hi2";
-import { AiFillGithub } from "react-icons/ai";
+import { Box, Flex, } from "@chakra-ui/react";
 import { SchedulerState } from "./Summary";
 
 export const NavBarContainer: React.FunctionComponent<
@@ -51,36 +48,6 @@ export const Header: React.FunctionComponent<HeaderProps> = ({
   return (
     <NavBarContainer borderBottom={"1px"} borderBottomColor={"#f1f1f1"}>
       <Box w="100%" alignItems={"flex-start"}>
-        <NavBarContainer>
-          <Flex flexDirection={"row"} alignItems={"center"}>
-            <img alt={"Ballista Logo"} src={Logo} />
-          </Flex>
-          <Flex>
-            <a
-              rel={"noreferrer"}
-              target={"_blank"}
-              href={"https://arrow.apache.org/ballista/"}
-            >
-              <Button
-                mr={4}
-                colorScheme="blue"
-                size="sm"
-                rightIcon={<HiDocumentText />}
-              >
-                Docs
-              </Button>
-            </a>
-            <a
-              rel="noreferrer"
-              href={"https://github.com/apache/arrow-ballista"}
-              target={"_blank"}
-            >
-              <Button colorScheme="blue" size="sm" rightIcon={<AiFillGithub />}>
-                GitHub
-              </Button>
-            </a>
-          </Flex>
-        </NavBarContainer>
       </Box>
     </NavBarContainer>
   );

@@ -861,8 +861,10 @@ pub struct ExecuteQueryParams {
     #[prost(bytes = "vec", tag = "1")]
     pub logical_plan: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag = "2")]
+    pub sql: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
     pub session_id: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "3")]
+    #[prost(message, repeated, tag = "4")]
     pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

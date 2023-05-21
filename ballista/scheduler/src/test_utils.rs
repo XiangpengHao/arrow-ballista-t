@@ -487,7 +487,7 @@ impl SchedulerTest {
             .create_session(&self.ballista_config)?;
 
         self.scheduler
-            .submit_job(job_id, job_name, ctx, plan)
+            .submit_job(job_id, job_name, ctx, plan, "".to_owned())
             .await?;
 
         Ok(())
@@ -611,7 +611,7 @@ impl SchedulerTest {
             .create_session(&self.ballista_config)?;
 
         self.scheduler
-            .submit_job(job_id, job_name, ctx, plan)
+            .submit_job(job_id, job_name, ctx, plan, "".to_owned())
             .await?;
 
         let mut receiver = self.status_receiver.take().unwrap();

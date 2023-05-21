@@ -271,6 +271,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             logical_plan: query,
             settings,
             session_id,
+            sql,
         } = query_params;
 
         // parse config
@@ -318,7 +319,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             .cloned()
             .unwrap_or_default();
 
-        self.submit_job(&job_id, &job_name, session_ctx, &plan)
+        self.submit_job(&job_id, &job_name, session_ctx, &plan, sql)
             .await
             .map_err(|e| {
                 let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");

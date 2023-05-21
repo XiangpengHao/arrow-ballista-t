@@ -262,6 +262,8 @@ pub struct InMemoryJobState {
     queued_jobs: DashMap<String, (String, u64)>,
     /// In-memory store of running job statuses. Map from Job ID -> JobStatus
     running_jobs: DashMap<String, JobStatus>,
+    /// Map from Job ID -> SQL query
+    received_sql: DashMap<String, String>,
     /// Active ballista sessions
     sessions: DashMap<String, Arc<SessionContext>>,
     /// `SessionBuilder` for building DataFusion `SessionContext` from `BallistaConfig`
@@ -278,6 +280,7 @@ impl InMemoryJobState {
             queued_jobs: Default::default(),
             running_jobs: Default::default(),
             sessions: Default::default(),
+            received_sql: Default::default(),
             session_builder,
             job_event_sender: ClusterEventSender::new(100),
         }
@@ -331,6 +334,14 @@ impl JobState for InMemoryJobState {
             .get(job_id)
             .as_deref()
             .and_then(|(_, graph)| graph.clone()))
+    }
+
+    fn get_sql(&self, job_id: &str) -> Result<Option<String>> {
+        Ok(self.received_sql.get(job_id).map(|r| r.value().clone()))
+    }
+
+    fn register_sql(&self, job_id: &str, sql: String) {
+        self.received_sql.insert(job_id.to_string(), sql);
     }
 
     fn try_acquire_job(&self, _job_id: &str) -> Result<Option<ExecutionGraph>> {

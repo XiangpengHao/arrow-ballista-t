@@ -172,6 +172,7 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
         })?;
 
         let query = ExecuteQueryParams {
+            sql: "".to_owned(), // TODO: use real SQL
             logical_plan: buf,
             settings: self
                 .config

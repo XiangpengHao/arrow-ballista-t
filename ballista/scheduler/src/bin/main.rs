@@ -82,7 +82,7 @@ async fn main() -> Result<()> {
             }
         };
         tracing_subscriber::fmt()
-            .with_ansi(true)
+            .with_ansi(false)
             .with_thread_names(print_thread_info)
             .with_thread_ids(print_thread_info)
             .with_writer(log_file)
@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
     } else {
         // Console layer
         tracing_subscriber::fmt()
-            .with_ansi(true)
+            .with_ansi(false)
             .with_thread_names(print_thread_info)
             .with_thread_ids(print_thread_info)
             .with_writer(io::stdout)

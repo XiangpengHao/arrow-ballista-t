@@ -33,7 +33,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ipc::reader::FileReader;
 use datafusion::arrow::record_batch::RecordBatch;
 
-use datafusion::error::{DataFusionError, Result};
+use datafusion::error::Result;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
@@ -58,6 +58,8 @@ use tokio_stream::wrappers::ReceiverStream;
 /// being executed by an executor
 #[derive(Debug, Clone)]
 pub struct ShuffleReaderExec {
+    /// The query stage id to read from
+    pub stage_id: usize,
     /// Each partition of a shuffle can read data from multiple locations
     pub partition: Vec<Vec<PartitionLocation>>,
     pub(crate) schema: SchemaRef,
@@ -68,12 +70,14 @@ pub struct ShuffleReaderExec {
 impl ShuffleReaderExec {
     /// Create a new ShuffleReaderExec
     pub fn try_new(
+        stage_id: usize,
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
     ) -> Result<Self> {
         Ok(Self {
-            partition,
+            stage_id,
             schema,
+            partition,
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
@@ -106,9 +110,11 @@ impl ExecutionPlan for ShuffleReaderExec {
         self: Arc<Self>,
         _children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Err(DataFusionError::Plan(
-            "Ballista ShuffleReaderExec does not support with_new_children()".to_owned(),
-        ))
+        Ok(Arc::new(ShuffleReaderExec::try_new(
+            self.stage_id,
+            self.partition.clone(),
+            self.schema.clone(),
+        )?))
     }
 
     fn execute(
@@ -430,6 +436,7 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::ipc::writer::FileWriter;
     use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::error::DataFusionError;
     use datafusion::physical_expr::expressions::Column;
     use datafusion::physical_plan::common;
     use datafusion::physical_plan::memory::MemoryExec;
@@ -535,9 +542,13 @@ mod tests {
                 path: "test_path".to_string(),
             })
         }
+        let input_stage_id = 2;
 
-        let shuffle_reader_exec =
-            ShuffleReaderExec::try_new(vec![partitions], Arc::new(schema))?;
+        let shuffle_reader_exec = ShuffleReaderExec::try_new(
+            input_stage_id,
+            vec![partitions],
+            Arc::new(schema),
+        )?;
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
 

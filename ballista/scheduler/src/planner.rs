@@ -246,6 +246,7 @@ pub fn remove_unresolved_shuffles(
                     .join("\n")
             );
             new_children.push(Arc::new(ShuffleReaderExec::try_new(
+                unresolved_shuffle.stage_id,
                 relevant_locations,
                 unresolved_shuffle.schema().clone(),
             )?))

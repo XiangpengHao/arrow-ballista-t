@@ -23,7 +23,8 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::{
-    DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
+    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
+    Statistics,
 };
 
 /// UnresolvedShuffleExec represents a dependency on the results of a ShuffleWriterExec node which hasn't computed yet.
@@ -105,21 +106,23 @@ impl ExecutionPlan for UnresolvedShuffleExec {
         ))
     }
 
+    fn statistics(&self) -> Statistics {
+        // The full statistics are computed in the `ShuffleReaderExec` node
+        // that replaces this one once the previous stage is completed.
+        Statistics::default()
+    }
+}
+
+impl DisplayAs for UnresolvedShuffleExec {
     fn fmt_as(
         &self,
         t: DisplayFormatType,
         f: &mut std::fmt::Formatter,
     ) -> std::fmt::Result {
         match t {
-            DisplayFormatType::Default => {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(f, "UnresolvedShuffleExec")
             }
         }
-    }
-
-    fn statistics(&self) -> Statistics {
-        // The full statistics are computed in the `ShuffleReaderExec` node
-        // that replaces this one once the previous stage is completed.
-        Statistics::default()
     }
 }

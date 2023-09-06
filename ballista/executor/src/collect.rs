@@ -27,7 +27,8 @@ use datafusion::error::DataFusionError;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::{
-    DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
+    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
+    Statistics,
 };
 use datafusion::{error::Result, physical_plan::RecordBatchStream};
 use futures::stream::SelectAll;
@@ -93,20 +94,22 @@ impl ExecutionPlan for CollectExec {
         }))
     }
 
+    fn statistics(&self) -> Statistics {
+        self.plan.statistics()
+    }
+}
+
+impl DisplayAs for CollectExec {
     fn fmt_as(
         &self,
         t: DisplayFormatType,
         f: &mut std::fmt::Formatter,
     ) -> std::fmt::Result {
         match t {
-            DisplayFormatType::Default => {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(f, "CollectExec")
             }
         }
-    }
-
-    fn statistics(&self) -> Statistics {
-        self.plan.statistics()
     }
 }
 

@@ -25,9 +25,8 @@ use ballista::prelude::{
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::SchemaBuilder;
 use datafusion::arrow::util::display::array_value_to_string;
-use datafusion::datasource::file_format::csv::DEFAULT_CSV_EXTENSION;
-use datafusion::datasource::file_format::parquet::DEFAULT_PARQUET_EXTENSION;
-use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::common::{DEFAULT_CSV_EXTENSION, DEFAULT_PARQUET_EXTENSION};
+use datafusion::datasource::listing::{ListingTableInsertMode, ListingTableUrl};
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::SessionState;
@@ -718,7 +717,7 @@ async fn execute_query(
     if debug {
         println!(
             "=== Physical plan ===\n{}\n",
-            displayable(physical_plan.as_ref()).indent()
+            displayable(physical_plan.as_ref()).indent(false)
         );
     }
     let task_ctx = ctx.task_ctx();
@@ -726,7 +725,7 @@ async fn execute_query(
     if debug {
         println!(
             "=== Physical plan with metrics ===\n{}\n",
-            DisplayableExecutionPlan::with_metrics(physical_plan.as_ref()).indent()
+            DisplayableExecutionPlan::with_metrics(physical_plan.as_ref()).indent(false)
         );
         if !result.is_empty() {
             pretty::print_batches(&result)?;
@@ -850,8 +849,9 @@ async fn get_table(
         target_partitions,
         collect_stat: true,
         table_partition_cols: vec![],
-        file_sort_order: None,
+        file_sort_order: vec![],
         infinite_source: false,
+        insert_mode: ListingTableInsertMode::Error,
     };
 
     let url = ListingTableUrl::parse(path)?;
@@ -1037,13 +1037,26 @@ async fn get_expected_results(n: usize, path: &str) -> Result<Vec<RecordBatch>> 
             .fields()
             .iter()
             .map(|field| {
-                Expr::Alias(
-                    Box::new(Expr::Cast(Cast {
-                        expr: Box::new(trim(col(Field::name(field)))),
-                        data_type: Field::data_type(field).to_owned(),
-                    })),
-                    Field::name(field).to_string(),
-                )
+                match Field::data_type(field) {
+                    DataType::Decimal128(_, _) => {
+                        // there's no support for casting from Utf8 to Decimal, so
+                        // we'll cast from Utf8 to Float64 to Decimal for Decimal types
+                        let inner_cast = Box::new(Expr::Cast(Cast::new(
+                            Box::new(trim(col(Field::name(field)))),
+                            DataType::Float64,
+                        )));
+                        Expr::Cast(Cast::new(
+                            inner_cast,
+                            Field::data_type(field).to_owned(),
+                        ))
+                        .alias(Field::name(field))
+                    }
+                    _ => Expr::Cast(Cast::new(
+                        Box::new(trim(col(Field::name(field)))),
+                        Field::data_type(field).to_owned(),
+                    ))
+                    .alias(Field::name(field)),
+                }
             })
             .collect::<Vec<Expr>>(),
     )?;

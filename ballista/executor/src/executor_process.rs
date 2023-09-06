@@ -55,6 +55,7 @@ use ballista_core::utils::{
 };
 use ballista_core::BALLISTA_VERSION;
 
+use crate::execution_engine::ExecutionEngine;
 use crate::executor::{Executor, TasksDrainedFuture};
 use crate::executor_server;
 use crate::executor_server::TERMINATING;
@@ -81,6 +82,13 @@ pub struct ExecutorProcessConfig {
     pub log_rotation_policy: LogRotationPolicy,
     pub job_data_ttl_seconds: u64,
     pub job_data_clean_up_interval_seconds: u64,
+    /// The maximum size of a decoded message at the grpc server side.
+    pub grpc_server_max_decoding_message_size: u32,
+    pub executor_heartbeat_interval_seconds: u64,
+
+    /// Optional execution engine to use to execute physical plans, will default to
+    /// DataFusion if none is provided.
+    pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
 }
 
 impl Debug for ExecutorProcessConfig {
@@ -112,7 +120,7 @@ impl Debug for ExecutorProcessConfig {
     }
 }
 
-pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
+pub async fn start_executor_process(opt: Arc<ExecutorProcessConfig>) -> Result<()> {
     let rust_log = env::var(EnvFilter::DEFAULT_ENV);
     let log_filter =
         EnvFilter::new(rust_log.unwrap_or(opt.special_mod_log_level.clone()));
@@ -156,11 +164,11 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         .parse()
         .with_context(|| format!("Could not parse address: {addr}"))?;
 
-    let scheduler_host = opt.scheduler_host;
+    let scheduler_host = opt.scheduler_host.clone();
     let scheduler_port = opt.scheduler_port;
     let scheduler_url = format!("http://{scheduler_host}:{scheduler_port}");
 
-    let work_dir = opt.work_dir.unwrap_or(
+    let work_dir = opt.work_dir.clone().unwrap_or(
         TempDir::new()?
             .into_path()
             .into_os_string()
@@ -201,12 +209,16 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
 
     let metrics_collector = Arc::new(LoggingMetricsCollector::default());
 
+    let runtime_with_data_cache = None;
+
     let executor = Arc::new(Executor::new(
         executor_meta,
         &work_dir,
         runtime,
+        runtime_with_data_cache,
         metrics_collector,
         concurrent_tasks,
+        opt.execution_engine.clone(),
     ));
 
     let connect_timeout = opt.scheduler_connect_timeout_seconds as u64;
@@ -299,7 +311,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         //If there is executor registration error during startup, return the error and stop early.
         executor_server::startup(
             scheduler.clone(),
-            opt.bind_host,
+            opt.clone(),
             executor.clone(),
             default_codec,
             stop_send,

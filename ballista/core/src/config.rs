@@ -35,6 +35,9 @@ pub const BALLISTA_REPARTITION_AGGREGATIONS: &str = "ballista.repartition.aggreg
 pub const BALLISTA_REPARTITION_WINDOWS: &str = "ballista.repartition.windows";
 pub const BALLISTA_PARQUET_PRUNING: &str = "ballista.parquet.pruning";
 pub const BALLISTA_WITH_INFORMATION_SCHEMA: &str = "ballista.with_information_schema";
+/// Indicate whether to enable to data cache for a task
+pub const BALLISTA_DATA_CACHE_ENABLED: &str = "ballista.data_cache.enabled";
+
 pub type ParseResult<T> = result::Result<T, String>;
 
 /// Configuration option meta-data

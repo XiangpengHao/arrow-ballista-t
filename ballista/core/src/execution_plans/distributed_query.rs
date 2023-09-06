@@ -31,7 +31,8 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
-    DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
+    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
+    Statistics,
 };
 use datafusion_proto::logical_plan::{
     AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec,
@@ -196,13 +197,22 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
         Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 
+    fn statistics(&self) -> Statistics {
+        // This execution plan sends the logical plan to the scheduler without
+        // performing the node by node conversion to a full physical plan.
+        // This implies that we cannot infer the statistics at this stage.
+        Statistics::default()
+    }
+}
+
+impl<T: 'static + AsLogicalPlan> DisplayAs for DistributedQueryExec<T> {
     fn fmt_as(
         &self,
         t: DisplayFormatType,
         f: &mut std::fmt::Formatter,
     ) -> std::fmt::Result {
         match t {
-            DisplayFormatType::Default => {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
                     "DistributedQueryExec: scheduler_url={}",
@@ -210,13 +220,6 @@ impl<T: 'static + AsLogicalPlan> ExecutionPlan for DistributedQueryExec<T> {
                 )
             }
         }
-    }
-
-    fn statistics(&self) -> Statistics {
-        // This execution plan sends the logical plan to the scheduler without
-        // performing the node by node conversion to a full physical plan.
-        // This implies that we cannot infer the statistics at this stage.
-        Statistics::default()
     }
 }
 

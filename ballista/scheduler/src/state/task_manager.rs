@@ -208,7 +208,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     ) -> Result<()> {
         info!(
             "Converting execution plan into execution graph: {}",
-            DisplayableExecutionPlan::new(plan.as_ref()).indent()
+            DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
         );
 
         let mut graph = ExecutionGraph::new(

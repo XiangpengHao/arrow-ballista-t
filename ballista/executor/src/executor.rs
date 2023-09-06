@@ -28,6 +28,7 @@ use ballista_core::serde::scheduler::PartitionId;
 use dashmap::DashMap;
 use datafusion::execution::context::TaskContext;
 use datafusion::execution::runtime_env::RuntimeEnv;
+use datafusion::logical_expr::WindowUDF;
 use datafusion::physical_plan::udaf::AggregateUDF;
 use datafusion::physical_plan::udf::ScalarUDF;
 use futures::future::AbortHandle;
@@ -68,8 +69,16 @@ pub struct Executor {
     /// Aggregate functions registered in the Executor
     pub aggregate_functions: HashMap<String, Arc<AggregateUDF>>,
 
+    /// Window functions registered in the Executor
+    pub window_functions: HashMap<String, Arc<WindowUDF>>,
+
     /// Runtime environment for Executor
-    pub runtime: Arc<RuntimeEnv>,
+    runtime: Arc<RuntimeEnv>,
+
+    /// Runtime environment for Executor with data cache.
+    /// The difference with [`runtime`] is that it leverages a different [`object_store_registry`].
+    /// And others things are shared with [`runtime`].
+    runtime_with_data_cache: Option<Arc<RuntimeEnv>>,
 
     /// Collector for runtime execution metrics
     pub metrics_collector: Arc<dyn ExecutorMetricsCollector>,
@@ -91,8 +100,10 @@ impl Executor {
         metadata: ExecutorRegistration,
         work_dir: &str,
         runtime: Arc<RuntimeEnv>,
+        runtime_with_data_cache: Option<Arc<RuntimeEnv>>,
         metrics_collector: Arc<dyn ExecutorMetricsCollector>,
         concurrent_tasks: usize,
+        execution_engine: Option<Arc<dyn ExecutionEngine>>,
     ) -> Self {
         Self {
             metadata,
@@ -100,16 +111,31 @@ impl Executor {
             // TODO add logic to dynamically load UDF/UDAFs libs from files
             scalar_functions: HashMap::new(),
             aggregate_functions: HashMap::new(),
+            window_functions: HashMap::new(),
             runtime,
+            runtime_with_data_cache,
             metrics_collector,
             concurrent_tasks,
             abort_handles: Default::default(),
-            execution_engine: Arc::new(DefaultExecutionEngine {}),
+            execution_engine: execution_engine
+                .unwrap_or_else(|| Arc::new(DefaultExecutionEngine {})),
         }
     }
 }
 
 impl Executor {
+    pub fn get_runtime(&self, data_cache: bool) -> Arc<RuntimeEnv> {
+        if data_cache {
+            if let Some(runtime) = self.runtime_with_data_cache.clone() {
+                runtime
+            } else {
+                self.runtime.clone()
+            }
+        } else {
+            self.runtime.clone()
+        }
+    }
+
     /// Execute one partition of a query stage and persist the result to disk in IPC format. On
     /// success, return a RecordBatch containing metadata about the results, including path
     /// and statistics.
@@ -187,8 +213,8 @@ mod test {
     use datafusion::error::DataFusionError;
     use datafusion::physical_expr::PhysicalSortExpr;
     use datafusion::physical_plan::{
-        ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
-        Statistics,
+        DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
+        SendableRecordBatchStream, Statistics,
     };
     use datafusion::prelude::SessionContext;
     use futures::Stream;
@@ -222,6 +248,20 @@ mod test {
     /// An ExecutionPlan which will never terminate
     #[derive(Debug)]
     pub struct NeverendingOperator;
+
+    impl DisplayAs for NeverendingOperator {
+        fn fmt_as(
+            &self,
+            t: DisplayFormatType,
+            f: &mut std::fmt::Formatter,
+        ) -> std::fmt::Result {
+            match t {
+                DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                    write!(f, "NeverendingOperator")
+                }
+            }
+        }
+    }
 
     impl ExecutionPlan for NeverendingOperator {
         fn as_any(&self) -> &dyn Any {
@@ -298,8 +338,10 @@ mod test {
             executor_registration,
             &work_dir,
             ctx.runtime_env(),
+            None,
             Arc::new(LoggingMetricsCollector {}),
             2,
+            None,
         );
 
         let (sender, receiver) = tokio::sync::oneshot::channel();

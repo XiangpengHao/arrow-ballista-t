@@ -18,22 +18,23 @@
 [workspace]
 exclude = ["ballista-cli", "examples"]
 members = ["ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "benchmarks"]
+resolver = "2"
 
 [workspace.dependencies]
-arrow = { version = "39.0.0" }
-arrow-flight = { version = "39.0.0", features = ["flight-sql-experimental"] }
+arrow = { version = "45.0.0" }
+arrow-flight = { version = "45.0.0", features = ["flight-sql-experimental"] }
 configure_me = { version = "0.4.0" }
 configure_me_codegen = { version = "0.4.4" }
-datafusion = "25.0.0"
-datafusion-proto = "25.0.0"
-object_store = { version = "0.5.6", default-features = false }
-sqlparser = "0.33.0"
+datafusion = "30.0.0"
+datafusion-proto = "30.0.0"
+object_store = { version = "0.6.1", default-features = false }
+sqlparser = "0.36.1"
 tonic = { version = "0.9" }
 tonic-build = { version = "0.9", default-features = false, features = [
     "transport",
     "prost",
 ] }
-tokio = { version = "1.28", features = ["full"] }
+tokio = { version = "1.32", features = ["full"] }
 futures = "0.3"
 tracing = "0.1.37"
 tracing-appender = "0.2.2"

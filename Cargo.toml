@@ -16,8 +16,15 @@
 # under the License.
 
 [workspace]
-exclude = ["ballista-cli", "examples"]
-members = ["ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "benchmarks"]
+members = [
+    "ballista/client",
+    "ballista/core",
+    "ballista/executor",
+    "ballista/scheduler",
+    "benchmarks",
+    "ballista-cli",
+    "examples",
+]
 resolver = "2"
 
 [workspace.dependencies]

@@ -211,7 +211,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         }
                     });
                 } else {
-                    debug!(
+                    info!(
                         "Reserved {} task slots for submitted job {}",
                         reservations.len(),
                         job_id

@@ -459,6 +459,7 @@ mod tests {
             .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
         assert_eq!(1, batches.len());
         let batch = &batches[0];
+        println!("batch: {:?}", batch);
         assert_eq!(3, batch.num_columns());
         assert_eq!(2, batch.num_rows());
         let path = batch.columns()[1]
@@ -514,6 +515,7 @@ mod tests {
         let batches = utils::collect_stream(&mut stream)
             .await
             .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
+
         assert_eq!(1, batches.len());
         let batch = &batches[0];
         assert_eq!(3, batch.num_columns());

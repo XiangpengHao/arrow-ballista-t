@@ -19,7 +19,9 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use ballista_core::serde::protobuf::failed_task::FailedReason;
 use datafusion::physical_optimizer::join_selection::JoinSelection;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
@@ -29,11 +31,8 @@ use datafusion::prelude::SessionConfig;
 use log::{debug, warn};
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::serde::protobuf::failed_task::FailedReason;
-use ballista_core::serde::protobuf::{task_status, RunningTask};
-use ballista_core::serde::protobuf::{
-    FailedTask, OperatorMetricsSet, ResultLost, SuccessfulTask, TaskStatus,
-};
+use ballista_core::serde::protobuf::{task_status, FailedTask, ResultLost, RunningTask};
+use ballista_core::serde::protobuf::{OperatorMetricsSet, SuccessfulTask, TaskStatus};
 use ballista_core::serde::scheduler::PartitionLocation;
 
 use crate::display::DisplayableBallistaExecutionPlan;
@@ -221,6 +220,14 @@ pub(crate) struct TaskInfo {
     pub(super) task_id: usize,
     /// Task scheduled time
     pub(super) scheduled_time: u128,
+    /// Task launch time
+    pub(super) launch_time: u128,
+    /// Start execution time
+    pub(super) start_exec_time: u128,
+    /// Finish execution time
+    pub(super) end_exec_time: u128,
+    /// Task finish time
+    pub(super) finish_time: u128,
     /// Task Status
     pub(super) task_status: task_status::Status,
 }
@@ -598,6 +605,13 @@ impl RunningStage {
         let updated_task_info = TaskInfo {
             task_id,
             scheduled_time,
+            launch_time: status.launch_time as u128,
+            start_exec_time: status.start_exec_time as u128,
+            end_exec_time: status.end_exec_time as u128,
+            finish_time: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
             task_status: task_status.clone(),
         };
         self.task_infos[partition_id] = Some(updated_task_info);
@@ -810,6 +824,10 @@ impl SuccessfulStage {
                     *task = TaskInfo {
                         task_id: *task_id,
                         scheduled_time: *scheduled_time,
+                        launch_time: 0,
+                        start_exec_time: 0,
+                        end_exec_time: 0,
+                        finish_time: 0,
                         task_status: task_status::Status::Failed(FailedTask {
                             error: failure_reason.clone(),
                             retryable: true,

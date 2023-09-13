@@ -125,3 +125,9 @@ name = "scheduler_event_expected_processing_duration"
 type = "u64"
 default = "0"
 doc = "The maximum expected processing time of a scheduler event (microseconds). Zero means disable."
+
+[[param]]
+name = "executor_timeout_seconds"
+type = "u64"
+doc = "The executor timeout in seconds. It should be longer than executor's heartbeat intervals. Only after missing two or tree consecutive heartbeats from a executor, the executor is mark to be dead"
+default = "180"

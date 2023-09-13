@@ -29,7 +29,7 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, JobStatus, MultiTaskDefinition, TaskId, TaskStatus,
+    self, job_status, JobStatus, MultiTaskDefinition, TaskId, TaskStatus,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 use ballista_core::serde::BallistaCodec;
@@ -130,17 +130,21 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 }
 
 #[derive(Clone)]
-struct JobInfoCache {
+pub(crate) struct JobInfoCache {
     // Cache for active execution graphs curated by this scheduler
-    execution_graph: Arc<RwLock<ExecutionGraph>>,
+    pub(crate) execution_graph: Arc<RwLock<ExecutionGraph>>,
+    // Cache for job status
+    pub(crate) status: Option<job_status::Status>,
     // Cache for encoded execution stage plan to avoid duplicated encoding for multiple tasks
     encoded_stage_plans: HashMap<usize, Vec<u8>>,
 }
 
 impl JobInfoCache {
     fn new(graph: ExecutionGraph) -> Self {
+        let status = graph.status().status.clone();
         Self {
             execution_graph: Arc::new(RwLock::new(graph)),
+            status,
             encoded_stage_plans: HashMap::new(),
         }
     }
@@ -191,6 +195,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         self.state.accept_job(job_id, job_name, queued_at)
     }
 
+    /// Get the number of queued jobs. If it's big, then it means the scheduler is too busy.
+    /// In normal case, it's better to be 0.
+    pub fn pending_job_number(&self) -> usize {
+        self.state.pending_job_number()
+    }
+
+    /// Get the number of running jobs.
+    pub fn running_job_number(&self) -> usize {
+        self.active_job_cache.len()
+    }
+
     pub fn register_sql(&self, job_id: &str, sql: String) {
         self.state.register_sql(job_id, sql)
     }
@@ -228,6 +243,22 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             .insert(job_id.to_owned(), JobInfoCache::new(graph));
 
         Ok(())
+    }
+
+    pub fn get_running_job_cache(&self) -> Arc<HashMap<String, JobInfoCache>> {
+        let ret = self
+            .active_job_cache
+            .iter()
+            .filter_map(|pair| {
+                let (job_id, job_info) = pair.pair();
+                if matches!(job_info.status, Some(job_status::Status::Running(_))) {
+                    Some((job_id.clone(), job_info.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<_, _>>();
+        Arc::new(ret)
     }
 
     /// Get a list of active job ids

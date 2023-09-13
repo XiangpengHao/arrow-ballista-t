@@ -20,7 +20,7 @@ pub mod memory;
 
 #[cfg(test)]
 #[allow(clippy::uninlined_format_args)]
-pub mod test;
+pub mod test_util;
 
 use crate::cluster::memory::{InMemoryClusterState, InMemoryJobState};
 #[cfg(feature = "etcd")]
@@ -28,15 +28,19 @@ use crate::cluster::storage::etcd::EtcdClient;
 
 use crate::config::{SchedulerConfig, TaskDistribution};
 use crate::scheduler_server::SessionBuilder;
-use crate::state::execution_graph::ExecutionGraph;
-use crate::state::executor_manager::ExecutorReservation;
+use crate::state::execution_graph::{create_task_info, ExecutionGraph, TaskDescription};
+use crate::state::task_manager::JobInfoCache;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::Result;
-use ballista_core::serde::protobuf::{AvailableTaskSlots, ExecutorHeartbeat, JobStatus};
-use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
+use ballista_core::serde::protobuf::{
+    job_status, AvailableTaskSlots, ExecutorHeartbeat, JobStatus,
+};
+use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata, PartitionId};
 use ballista_core::utils::default_session_builder;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 use futures::Stream;
+use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -89,6 +93,13 @@ impl BallistaCluster {
 /// by any schedulers with a shared `ClusterState`
 pub type ExecutorHeartbeatStream = Pin<Box<dyn Stream<Item = ExecutorHeartbeat> + Send>>;
 
+/// A task bound with an executor to execute.
+/// BoundTask.0 is the executor id; While BoundTask.1 is the task description.
+pub type BoundTask = (String, TaskDescription);
+
+/// ExecutorSlot.0 is the executor id; While ExecutorSlot.1 is for slot number.
+pub type ExecutorSlot = (String, u32);
+
 /// A trait that contains the necessary method to maintain a globally consistent view of cluster resources
 pub trait ClusterState: Send + Sync + 'static {
     /// Initialize when it's necessary, especially for state with backend storage
@@ -96,42 +107,28 @@ pub trait ClusterState: Send + Sync + 'static {
         Ok(())
     }
 
-    /// Reserve up to `num_slots` executor task slots. If not enough task slots are available, reserve
-    /// as many as possible.
+    /// Bind the ready to running tasks from [`active_jobs`] with available executors.
     ///
-    /// If `executors` is provided, only reserve slots of the specified executor IDs
-    fn reserve_slots(
+    /// If `executors` is provided, only bind slots from the specified executor IDs
+    async fn bind_schedulable_tasks(
         &self,
-        num_slots: u32,
         distribution: TaskDistribution,
+        active_jobs: Arc<HashMap<String, JobInfoCache>>,
         executors: Option<HashSet<String>>,
-    ) -> Result<Vec<ExecutorReservation>>;
+    ) -> Result<Vec<BoundTask>>;
 
-    /// Reserve exactly `num_slots` executor task slots. If not enough task slots are available,
-    /// returns an empty vec
+    /// Unbind executor and task when a task finishes or fails. It will increase the executor
+    /// available task slots.
     ///
-    /// If `executors` is provided, only reserve slots of the specified executor IDs
-    fn reserve_slots_exact(
-        &self,
-        num_slots: u32,
-        distribution: TaskDistribution,
-        executors: Option<HashSet<String>>,
-    ) -> Result<Vec<ExecutorReservation>>;
-
-    /// Cancel the specified reservations. This will make reserved executor slots available to other
-    /// tasks.
     /// This operations should be atomic. Either all reservations are cancelled or none are
-    fn cancel_reservations(&self, reservations: Vec<ExecutorReservation>) -> Result<()>;
+    async fn unbind_tasks(&self, executor_slots: Vec<ExecutorSlot>) -> Result<()>;
 
-    /// Register a new executor in the cluster. If `reserve` is true, then the executors task slots
-    /// will be reserved and returned in the response and none of the new executors task slots will be
-    /// available to other tasks.
-    fn register_executor(
+    /// Register a new executor in the cluster.
+    async fn register_executor(
         &self,
         metadata: ExecutorMetadata,
         spec: ExecutorData,
-        reserve: bool,
-    ) -> Result<Vec<ExecutorReservation>>;
+    ) -> Result<()>;
 
     /// Save the executor metadata. This will overwrite existing metadata for the executor ID
     fn save_executor_metadata(&self, metadata: ExecutorMetadata);
@@ -143,7 +140,7 @@ pub trait ClusterState: Send + Sync + 'static {
     fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat);
 
     /// Remove the executor from the cluster
-    fn remove_executor(&self, executor_id: &str);
+    async fn remove_executor(&self, executor_id: &str) -> Result<()>;
 
     /// Return a map of the last seen heartbeat for all active executors
     fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat>;
@@ -199,6 +196,10 @@ pub trait JobState: Send + Sync {
     /// received by the scheduler but before it is planned and may or may not be saved
     /// in global state
     fn accept_job(&self, job_id: &str, job_name: &str, queued_at: u64) -> Result<()>;
+
+    /// Get the number of queued jobs. If it's big, then it means the scheduler is too busy.
+    /// In normal case, it's better to be 0.
+    fn pending_job_number(&self) -> usize;
 
     /// Submit a new job to the `JobState`. It is assumed that the submitter owns the job.
     /// In local state the job should be save as `JobStatus::Active` and in shared state
@@ -257,66 +258,182 @@ pub trait JobState: Send + Sync {
     ) -> Result<Arc<SessionContext>>;
 }
 
-pub(crate) fn reserve_slots_bias(
+pub(crate) async fn bind_task_bias(
     mut slots: Vec<&mut AvailableTaskSlots>,
-    mut n: u32,
-) -> Vec<ExecutorReservation> {
-    let mut reservations = Vec::with_capacity(n as usize);
+    active_jobs: Arc<HashMap<String, JobInfoCache>>,
+    if_skip: fn(Arc<dyn ExecutionPlan>) -> bool,
+) -> Vec<BoundTask> {
+    let mut schedulable_tasks: Vec<BoundTask> = vec![];
 
-    let mut iter = slots.iter_mut();
+    let total_slots = slots.iter().fold(0, |acc, s| acc + s.slots);
+    if total_slots == 0 {
+        warn!("Not enough available executor slots for task running!!!");
+        return schedulable_tasks;
+    }
 
-    while n > 0 {
-        if let Some(executor) = iter.next() {
-            let take = executor.slots.min(n);
-            for _ in 0..take {
-                reservations
-                    .push(ExecutorReservation::new_free(executor.executor_id.clone()));
+    // Sort the slots by descending order
+    slots.sort_by(|a, b| Ord::cmp(&b.slots, &a.slots));
+
+    let mut idx_slot = 0usize;
+    let mut slot = &mut slots[idx_slot];
+    for (job_id, job_info) in active_jobs.iter() {
+        if !matches!(job_info.status, Some(job_status::Status::Running(_))) {
+            debug!(
+                "Job {} is not in running status and will be skipped",
+                job_id
+            );
+            continue;
+        }
+        let mut graph = job_info.execution_graph.write().await;
+        let session_id = graph.session_id().to_string();
+        let mut black_list = vec![];
+        while let Some((running_stage, task_id_gen)) =
+            graph.fetch_running_stage(&black_list)
+        {
+            if if_skip(running_stage.plan.clone()) {
+                info!(
+                    "Will skip stage {}/{} for bias task binding",
+                    job_id, running_stage.stage_id
+                );
+                black_list.push(running_stage.stage_id);
+                continue;
             }
+            // We are sure that it will at least bind one task by going through the following logic.
+            // It will not go into a dead loop.
+            let runnable_tasks = running_stage
+                .task_infos
+                .iter_mut()
+                .enumerate()
+                .filter(|(_partition, info)| info.is_none())
+                .take(total_slots as usize)
+                .collect::<Vec<_>>();
+            for (partition_id, task_info) in runnable_tasks {
+                // Assign [`slot`] with a slot available slot number larger than 0
+                while slot.slots == 0 {
+                    idx_slot += 1;
+                    if idx_slot >= slots.len() {
+                        return schedulable_tasks;
+                    }
+                    slot = &mut slots[idx_slot];
+                }
+                let executor_id = slot.executor_id.clone();
+                let task_id = *task_id_gen;
+                *task_id_gen += 1;
+                *task_info = Some(create_task_info(executor_id.clone(), task_id));
 
-            executor.slots -= take;
-            n -= take;
-        } else {
-            break;
+                let partition = PartitionId {
+                    job_id: job_id.clone(),
+                    stage_id: running_stage.stage_id,
+                    partition_id,
+                };
+                let task_desc = TaskDescription {
+                    session_id: session_id.clone(),
+                    partition,
+                    stage_attempt_num: running_stage.stage_attempt_num,
+                    task_id,
+                    task_attempt: running_stage.task_failure_numbers[partition_id],
+                    plan: running_stage.plan.clone(),
+                };
+                schedulable_tasks.push((executor_id, task_desc));
+
+                slot.slots -= 1;
+            }
         }
     }
 
-    reservations
+    schedulable_tasks
 }
 
-pub(crate) fn reserve_slots_round_robin(
+pub(crate) async fn bind_task_round_robin(
     mut slots: Vec<&mut AvailableTaskSlots>,
-    mut n: u32,
-) -> Vec<ExecutorReservation> {
-    let mut reservations = Vec::with_capacity(n as usize);
+    active_jobs: Arc<HashMap<String, JobInfoCache>>,
+    if_skip: fn(Arc<dyn ExecutionPlan>) -> bool,
+) -> Vec<BoundTask> {
+    let mut schedulable_tasks: Vec<BoundTask> = vec![];
 
-    let mut last_updated_idx = 0usize;
+    let mut total_slots = slots.iter().fold(0, |acc, s| acc + s.slots);
+    if total_slots == 0 {
+        warn!("Not enough available executor slots for task running!!!");
+        return schedulable_tasks;
+    }
+    info!("Total slot number is {}", total_slots);
 
-    loop {
-        let n_before = n;
-        for (idx, data) in slots.iter_mut().enumerate() {
-            if n == 0 {
-                break;
-            }
+    // Sort the slots by descending order
+    slots.sort_by(|a, b| Ord::cmp(&b.slots, &a.slots));
 
-            // Since the vector is sorted in descending order,
-            // if finding one executor has not enough slots, the following will have not enough, either
-            if data.slots == 0 {
-                break;
-            }
-
-            reservations.push(ExecutorReservation::new_free(data.executor_id.clone()));
-            data.slots -= 1;
-            n -= 1;
-
-            if idx >= last_updated_idx {
-                last_updated_idx = idx + 1;
-            }
+    let mut idx_slot = 0usize;
+    for (job_id, job_info) in active_jobs.iter() {
+        if !matches!(job_info.status, Some(job_status::Status::Running(_))) {
+            debug!(
+                "Job {} is not in running status and will be skipped",
+                job_id
+            );
+            continue;
         }
+        let mut graph = job_info.execution_graph.write().await;
+        let session_id = graph.session_id().to_string();
+        let mut black_list = vec![];
+        while let Some((running_stage, task_id_gen)) =
+            graph.fetch_running_stage(&black_list)
+        {
+            if if_skip(running_stage.plan.clone()) {
+                info!(
+                    "Will skip stage {}/{} for round robin task binding",
+                    job_id, running_stage.stage_id
+                );
+                black_list.push(running_stage.stage_id);
+                continue;
+            }
+            // We are sure that it will at least bind one task by going through the following logic.
+            // It will not go into a dead loop.
+            let runnable_tasks = running_stage
+                .task_infos
+                .iter_mut()
+                .enumerate()
+                .filter(|(_partition, info)| info.is_none())
+                .take(total_slots as usize)
+                .collect::<Vec<_>>();
+            for (partition_id, task_info) in runnable_tasks {
+                // Move to the index which has available slots
+                if idx_slot >= slots.len() {
+                    idx_slot = 0;
+                }
+                if slots[idx_slot].slots == 0 {
+                    idx_slot = 0;
+                }
 
-        if n_before == n {
-            break;
+                // Since the slots is a vector with descending order, and the total available slots is larger than 0,
+                // we are sure the available slot number at idx_slot is larger than 1
+                let slot = &mut slots[idx_slot];
+                let executor_id = slot.executor_id.clone();
+                let task_id = *task_id_gen;
+                *task_id_gen += 1;
+                *task_info = Some(create_task_info(executor_id.clone(), task_id));
+
+                let partition = PartitionId {
+                    job_id: job_id.clone(),
+                    stage_id: running_stage.stage_id,
+                    partition_id,
+                };
+                let task_desc = TaskDescription {
+                    session_id: session_id.clone(),
+                    partition,
+                    stage_attempt_num: running_stage.stage_attempt_num,
+                    task_id,
+                    task_attempt: running_stage.task_failure_numbers[partition_id],
+                    plan: running_stage.plan.clone(),
+                };
+                schedulable_tasks.push((executor_id, task_desc));
+
+                idx_slot += 1;
+                slot.slots -= 1;
+                total_slots -= 1;
+                if total_slots == 0 {
+                    return schedulable_tasks;
+                }
+            }
         }
     }
 
-    reservations
+    schedulable_tasks
 }

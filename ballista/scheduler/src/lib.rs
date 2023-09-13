@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![feature(async_fn_in_trait)]
 #![doc = include_str ! ("../README.md")]
 
 pub mod api;

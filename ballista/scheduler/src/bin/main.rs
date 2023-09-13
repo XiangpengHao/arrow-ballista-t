@@ -17,6 +17,7 @@
 
 //! Ballista Rust scheduler binary.
 
+use std::sync::Arc;
 use std::{env, io};
 
 use anyhow::Result;
@@ -118,10 +119,11 @@ async fn main() -> Result<()> {
         executor_termination_grace_period: opt.executor_termination_grace_period,
         scheduler_event_expected_processing_duration: opt
             .scheduler_event_expected_processing_duration,
+        executor_timeout_seconds: opt.executor_timeout_seconds,
     };
 
     let cluster = BallistaCluster::new_from_config(&config).await?;
 
-    start_server(cluster, addr, config).await?;
+    start_server(cluster, addr, Arc::new(config)).await?;
     Ok(())
 }

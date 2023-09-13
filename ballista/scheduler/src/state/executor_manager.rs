@@ -23,8 +23,8 @@ use ballista_core::error::Result;
 use ballista_core::serde::protobuf;
 
 use crate::cluster::memory::InMemoryClusterState;
-use crate::cluster::ClusterState;
-use crate::config::TaskDistribution;
+use crate::cluster::{BoundTask, ClusterState, ExecutorSlot};
+use crate::config::SchedulerConfig;
 
 use crate::state::execution_graph::RunningTaskInfo;
 use ballista_core::serde::protobuf::executor_grpc_client::ExecutorGrpcClient;
@@ -32,12 +32,14 @@ use ballista_core::serde::protobuf::{
     executor_status, CancelTasksParams, ExecutorHeartbeat, RemoveJobDataParams,
 };
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
-use ballista_core::utils::create_grpc_client_connection;
+use ballista_core::utils::{create_grpc_client_connection, get_time_before};
 use dashmap::DashMap;
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tonic::transport::Channel;
+
+use super::task_manager::JobInfoCache;
 
 type ExecutorClients = Arc<DashMap<String, ExecutorGrpcClient<Channel>>>;
 
@@ -89,7 +91,7 @@ pub const EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS: u64 = 15;
 
 #[derive(Clone)]
 pub struct ExecutorManager {
-    task_distribution: TaskDistribution,
+    config: Arc<SchedulerConfig>,
     cluster_state: Arc<InMemoryClusterState>,
     clients: ExecutorClients,
 }
@@ -97,11 +99,11 @@ pub struct ExecutorManager {
 impl ExecutorManager {
     pub(crate) fn new(
         cluster_state: Arc<InMemoryClusterState>,
-        task_distribution: TaskDistribution,
+        config: Arc<SchedulerConfig>,
     ) -> Self {
         Self {
-            task_distribution,
             cluster_state,
+            config,
             clients: Default::default(),
         }
     }
@@ -112,25 +114,35 @@ impl ExecutorManager {
         Ok(())
     }
 
-    /// Reserve up to n executor task slots. Once reserved these slots will not be available
-    /// for scheduling.
-    /// This operation is atomic, so if this method return an Err, no slots have been reserved.
-    pub fn reserve_slots(&self, n: u32) -> Result<Vec<ExecutorReservation>> {
-        let alive_executors = self.get_alive_executors_within_one_minute();
-
-        debug!("Alive executors: {alive_executors:?}");
-
+    /// Bind the ready to running tasks from [`active_jobs`] with available executors.
+    ///
+    /// If `executors` is provided, only bind slots from the specified executor IDs
+    pub async fn bind_schedulable_tasks(
+        &self,
+        active_jobs: Arc<HashMap<String, JobInfoCache>>,
+    ) -> Result<Vec<BoundTask>> {
+        if active_jobs.is_empty() {
+            warn!("There's no active jobs for binding tasks");
+            return Ok(vec![]);
+        }
+        let alive_executors = self.get_alive_executors();
+        if alive_executors.is_empty() {
+            warn!("There's no alive executors for binding tasks");
+            return Ok(vec![]);
+        }
         self.cluster_state
-            .reserve_slots(n, self.task_distribution, Some(alive_executors))
+            .bind_schedulable_tasks(
+                self.config.task_distribution,
+                active_jobs,
+                Some(alive_executors),
+            )
+            .await
     }
 
     /// Returned reserved task slots to the pool of available slots. This operation is atomic
     /// so either the entire pool of reserved task slots it returned or none are.
-    pub fn cancel_reservations(
-        &self,
-        reservations: Vec<ExecutorReservation>,
-    ) -> Result<()> {
-        self.cluster_state.cancel_reservations(reservations)
+    pub async fn unbind_tasks(&self, executor_slots: Vec<ExecutorSlot>) -> Result<()> {
+        self.cluster_state.unbind_tasks(executor_slots).await
     }
 
     /// Send rpc to Executors to cancel the running tasks
@@ -205,7 +217,7 @@ impl ExecutorManager {
 
     /// Send rpc to Executors to clean up the job data
     async fn clean_up_job_data_inner(&self, job_id: String) {
-        let alive_executors = self.get_alive_executors_within_one_minute();
+        let alive_executors = self.get_alive_executors();
         for executor in alive_executors {
             let job_id_clone = job_id.to_owned();
             if let Ok(mut client) = self.get_client(&executor).await {
@@ -282,50 +294,28 @@ impl ExecutorManager {
         Ok(())
     }
 
-    /// Register the executor with the scheduler. This will save the executor metadata and the
-    /// executor data to persistent state.
+    /// Register the executor with the scheduler.
     ///
-    /// If `reserve` is true, then any available task slots will be reserved and dispatched for scheduling.
-    /// If `reserve` is false, then the executor data will be saved as is.
+    /// This will save the executor metadata and the executor data to persistent state.
     ///
-    /// In general, reserve should be true is the scheduler is using push-based scheduling and false
-    /// if the scheduler is using pull-based scheduling.
+    /// It's only used for push-based task scheduling
     pub async fn register_executor(
         &self,
         metadata: ExecutorMetadata,
         specification: ExecutorData,
-        reserve: bool,
-    ) -> Result<Vec<ExecutorReservation>> {
+    ) -> Result<()> {
         info!(
             "registering executor {} with {} task slots",
             metadata.id, specification.total_task_slots
         );
 
-        self.test_scheduler_connectivity(&metadata).await?;
+        ExecutorManager::test_connectivity(&metadata).await?;
 
-        if !reserve {
-            self.cluster_state.register_executor(
-                metadata,
-                specification.clone(),
-                reserve,
-            )?;
+        self.cluster_state
+            .register_executor(metadata, specification)
+            .await?;
 
-            Ok(vec![])
-        } else {
-            let mut specification = specification;
-            let num_slots = specification.available_task_slots as usize;
-            let mut reservations: Vec<ExecutorReservation> = vec![];
-            for _ in 0..num_slots {
-                reservations.push(ExecutorReservation::new_free(metadata.id.clone()));
-            }
-
-            specification.available_task_slots = 0;
-
-            self.cluster_state
-                .register_executor(metadata, specification, reserve)?;
-
-            Ok(reservations)
-        }
+        Ok(())
     }
 
     /// Remove the executor within the scheduler.
@@ -336,32 +326,6 @@ impl ExecutorManager {
     ) -> Result<()> {
         info!("Removing executor {}: {:?}", executor_id, reason);
         self.cluster_state.remove_executor(executor_id);
-        Ok(())
-    }
-
-    #[cfg(not(test))]
-    async fn test_scheduler_connectivity(
-        &self,
-        metadata: &ExecutorMetadata,
-    ) -> Result<()> {
-        let executor_url = format!("http://{}:{}", metadata.host, metadata.grpc_port);
-        debug!("Connecting to executor {:?}", executor_url);
-        let _ = protobuf::executor_grpc_client::ExecutorGrpcClient::connect(executor_url)
-            .await
-            .map_err(|e| {
-                BallistaError::Internal(format!(
-                    "Failed to register executor at {}:{}, could not connect: {:?}",
-                    metadata.host, metadata.grpc_port, e
-                ))
-            })?;
-        Ok(())
-    }
-
-    #[cfg(test)]
-    async fn test_scheduler_connectivity(
-        &self,
-        _metadata: &ExecutorMetadata,
-    ) -> Result<()> {
         Ok(())
     }
 
@@ -389,10 +353,9 @@ impl ExecutorManager {
 
     /// Retrieve the set of all executor IDs where the executor has been observed in the last
     /// `last_seen_ts_threshold` seconds.
-    pub(crate) fn get_alive_executors(
-        &self,
-        last_seen_ts_threshold: u64,
-    ) -> HashSet<String> {
+    pub(crate) fn get_alive_executors(&self) -> HashSet<String> {
+        let last_seen_ts_threshold =
+            get_time_before(self.config.executor_timeout_seconds);
         self.cluster_state
             .executor_heartbeats()
             .iter()
@@ -454,289 +417,23 @@ impl ExecutorManager {
             .collect::<Vec<_>>()
     }
 
-    pub(crate) fn get_alive_executors_within_one_minute(&self) -> HashSet<String> {
-        let now_epoch_ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
-        let last_seen_threshold = now_epoch_ts
-            .checked_sub(Duration::from_secs(60))
-            .unwrap_or_else(|| Duration::from_secs(0));
-        self.get_alive_executors(last_seen_threshold.as_secs())
-    }
-}
-
-#[cfg(test)]
-mod test {
-
-    use crate::config::TaskDistribution;
-
-    use crate::scheduler_server::timestamp_secs;
-    use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
-    use crate::test_utils::test_cluster_context;
-    use ballista_core::error::Result;
-    use ballista_core::serde::protobuf::executor_status::Status;
-    use ballista_core::serde::protobuf::{ExecutorHeartbeat, ExecutorStatus};
-    use ballista_core::serde::scheduler::{
-        ExecutorData, ExecutorMetadata, ExecutorSpecification,
-    };
-
-    #[tokio::test]
-    async fn test_reserve_and_cancel() -> Result<()> {
-        test_reserve_and_cancel_inner(TaskDistribution::Bias).await?;
-        test_reserve_and_cancel_inner(TaskDistribution::RoundRobin).await?;
-
+    #[cfg(not(test))]
+    async fn test_connectivity(metadata: &ExecutorMetadata) -> Result<()> {
+        let executor_url = format!("http://{}:{}", metadata.host, metadata.grpc_port);
+        log::debug!("Connecting to executor {:?}", executor_url);
+        let _ = protobuf::executor_grpc_client::ExecutorGrpcClient::connect(executor_url)
+            .await
+            .map_err(|e| {
+                BallistaError::Internal(format!(
+                    "Failed to register executor at {}:{}, could not connect: {:?}",
+                    metadata.host, metadata.grpc_port, e
+                ))
+            })?;
         Ok(())
     }
 
-    async fn test_reserve_and_cancel_inner(
-        task_distribution: TaskDistribution,
-    ) -> Result<()> {
-        let cluster = test_cluster_context();
-
-        let executor_manager =
-            ExecutorManager::new(cluster.cluster_state(), task_distribution);
-
-        let executors = test_executors(10, 4);
-
-        for (executor_metadata, executor_data) in executors {
-            executor_manager
-                .register_executor(executor_metadata, executor_data, false)
-                .await?;
-        }
-
-        // Reserve all the slots
-        let reservations = executor_manager.reserve_slots(40)?;
-
-        assert_eq!(
-            reservations.len(),
-            40,
-            "Expected 40 reservations for policy {task_distribution:?}"
-        );
-
-        // Now cancel them
-        executor_manager.cancel_reservations(reservations)?;
-
-        // Now reserve again
-        let reservations = executor_manager.reserve_slots(40)?;
-
-        assert_eq!(
-            reservations.len(),
-            40,
-            "Expected 40 reservations for policy {task_distribution:?}"
-        );
-
+    #[cfg(test)]
+    async fn test_connectivity(_metadata: &ExecutorMetadata) -> Result<()> {
         Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_reserve_partial() -> Result<()> {
-        test_reserve_partial_inner(TaskDistribution::Bias).await?;
-        test_reserve_partial_inner(TaskDistribution::RoundRobin).await?;
-
-        Ok(())
-    }
-
-    async fn test_reserve_partial_inner(
-        task_distribution: TaskDistribution,
-    ) -> Result<()> {
-        let cluster = test_cluster_context();
-
-        let executor_manager =
-            ExecutorManager::new(cluster.cluster_state(), task_distribution);
-
-        let executors = test_executors(10, 4);
-
-        for (executor_metadata, executor_data) in executors {
-            executor_manager
-                .register_executor(executor_metadata, executor_data, false)
-                .await?;
-        }
-
-        // Reserve all the slots
-        let reservations = executor_manager.reserve_slots(30)?;
-
-        assert_eq!(reservations.len(), 30);
-
-        // Try to reserve 30 more. Only ten are available though so we should only get 10
-        let more_reservations = executor_manager.reserve_slots(30)?;
-
-        assert_eq!(more_reservations.len(), 10);
-
-        // Now cancel them
-        executor_manager.cancel_reservations(reservations)?;
-        executor_manager.cancel_reservations(more_reservations)?;
-
-        // Now reserve again
-        let reservations = executor_manager.reserve_slots(40)?;
-
-        assert_eq!(reservations.len(), 40);
-
-        let more_reservations = executor_manager.reserve_slots(30)?;
-
-        assert_eq!(more_reservations.len(), 0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_reserve_concurrent() -> Result<()> {
-        test_reserve_concurrent_inner(TaskDistribution::Bias).await?;
-        test_reserve_concurrent_inner(TaskDistribution::RoundRobin).await?;
-
-        Ok(())
-    }
-
-    async fn test_reserve_concurrent_inner(
-        task_distribution: TaskDistribution,
-    ) -> Result<()> {
-        let (sender, mut receiver) =
-            tokio::sync::mpsc::channel::<Result<Vec<ExecutorReservation>>>(1000);
-
-        let executors = test_executors(10, 4);
-
-        let cluster = test_cluster_context();
-        let executor_manager =
-            ExecutorManager::new(cluster.cluster_state(), task_distribution);
-
-        for (executor_metadata, executor_data) in executors {
-            executor_manager
-                .register_executor(executor_metadata, executor_data, false)
-                .await?;
-        }
-
-        {
-            let sender = sender;
-            // Spawn 20 async tasks to each try and reserve all 40 slots
-            for _ in 0..20 {
-                let executor_manager = executor_manager.clone();
-                let sender = sender.clone();
-                tokio::task::spawn(async move {
-                    let reservations = executor_manager.reserve_slots(40);
-                    sender.send(reservations).await.unwrap();
-                });
-            }
-        }
-
-        let mut total_reservations: Vec<ExecutorReservation> = vec![];
-
-        while let Some(Ok(reservations)) = receiver.recv().await {
-            total_reservations.extend(reservations);
-        }
-
-        // The total number of reservations should never exceed the number of slots
-        assert_eq!(total_reservations.len(), 40);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_register_reserve() -> Result<()> {
-        test_register_reserve_inner(TaskDistribution::Bias).await?;
-        test_register_reserve_inner(TaskDistribution::RoundRobin).await?;
-
-        Ok(())
-    }
-
-    async fn test_register_reserve_inner(
-        task_distribution: TaskDistribution,
-    ) -> Result<()> {
-        let cluster = test_cluster_context();
-
-        let executor_manager =
-            ExecutorManager::new(cluster.cluster_state(), task_distribution);
-
-        let executors = test_executors(10, 4);
-
-        for (executor_metadata, executor_data) in executors {
-            let reservations = executor_manager
-                .register_executor(executor_metadata, executor_data, true)
-                .await?;
-
-            assert_eq!(reservations.len(), 4);
-        }
-
-        // All slots should be reserved
-        let reservations = executor_manager.reserve_slots(1)?;
-
-        assert_eq!(reservations.len(), 0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_ignore_fenced_executors() -> Result<()> {
-        test_ignore_fenced_executors_inner(TaskDistribution::Bias).await?;
-        test_ignore_fenced_executors_inner(TaskDistribution::RoundRobin).await?;
-
-        Ok(())
-    }
-
-    async fn test_ignore_fenced_executors_inner(
-        task_distribution: TaskDistribution,
-    ) -> Result<()> {
-        let cluster = test_cluster_context();
-
-        let executor_manager =
-            ExecutorManager::new(cluster.cluster_state(), task_distribution);
-
-        // Setup two executors initially
-        let executors = test_executors(2, 4);
-
-        for (executor_metadata, executor_data) in executors {
-            let _ = executor_manager
-                .register_executor(executor_metadata, executor_data, false)
-                .await?;
-        }
-
-        // Fence one of the executors
-        executor_manager.save_executor_heartbeat(ExecutorHeartbeat {
-            executor_id: "executor-0".to_string(),
-            timestamp: timestamp_secs(),
-            metrics: vec![],
-            status: Some(ExecutorStatus {
-                status: Some(Status::Terminating(String::default())),
-            }),
-        })?;
-
-        let reservations = executor_manager.reserve_slots(8)?;
-
-        assert_eq!(reservations.len(), 4, "Expected only four reservations");
-
-        assert!(
-            reservations
-                .iter()
-                .all(|res| res.executor_id == "executor-1"),
-            "Expected all reservations from non-fenced executor",
-        );
-
-        Ok(())
-    }
-
-    fn test_executors(
-        total_executors: usize,
-        slots_per_executor: u32,
-    ) -> Vec<(ExecutorMetadata, ExecutorData)> {
-        let mut result: Vec<(ExecutorMetadata, ExecutorData)> = vec![];
-
-        for i in 0..total_executors {
-            result.push((
-                ExecutorMetadata {
-                    id: format!("executor-{i}"),
-                    host: format!("host-{i}"),
-                    port: 8080,
-                    grpc_port: 9090,
-                    specification: ExecutorSpecification {
-                        task_slots: slots_per_executor,
-                    },
-                },
-                ExecutorData {
-                    executor_id: format!("executor-{i}"),
-                    total_task_slots: slots_per_executor,
-                    available_task_slots: slots_per_executor,
-                },
-            ));
-        }
-
-        result
     }
 }

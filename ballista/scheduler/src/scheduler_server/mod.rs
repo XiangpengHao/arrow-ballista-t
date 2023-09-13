@@ -39,8 +39,7 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 
 use crate::state::executor_manager::{
-    ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
-    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
+    ExecutorManager, DEFAULT_EXECUTOR_TIMEOUT_SECONDS, EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
 };
 
 #[cfg(test)]
@@ -69,7 +68,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         scheduler_name: String,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
-        config: SchedulerConfig,
+        config: Arc<SchedulerConfig>,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
@@ -81,8 +80,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.job_resubmit_interval_ms,
-            config.scheduler_event_expected_processing_duration,
+            config.clone(),
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
@@ -105,7 +103,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         scheduler_name: String,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
-        config: SchedulerConfig,
+        config: Arc<SchedulerConfig>,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         task_launcher: Arc<dyn TaskLauncher>,
     ) -> Self {
@@ -119,8 +117,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.job_resubmit_interval_ms,
-            config.scheduler_event_expected_processing_duration,
+            config.clone(),
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
@@ -146,14 +143,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         Ok(())
     }
 
-    #[cfg(test)]
-    pub(crate) fn query_stage_scheduler(&self) -> Arc<QueryStageScheduler<T, U>> {
-        self.query_stage_scheduler.clone()
+    pub fn pending_job_number(&self) -> usize {
+        self.state.task_manager.pending_job_number()
     }
 
-    #[cfg(test)]
-    pub(crate) fn pending_tasks(&self) -> usize {
-        self.query_stage_scheduler.pending_tasks()
+    pub fn running_job_number(&self) -> usize {
+        self.state.task_manager.running_job_number()
     }
 
     pub(crate) fn metrics_collector(&self) -> &dyn SchedulerMetricsCollector {
@@ -205,13 +200,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             .await
     }
 
-    pub(crate) async fn offer_reservation(
-        &self,
-        reservations: Vec<ExecutorReservation>,
-    ) -> Result<()> {
+    pub(crate) async fn revive_offers(&self) -> Result<()> {
         self.query_stage_event_loop
             .get_sender()?
-            .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations))
+            .post_event(QueryStageSchedulerEvent::ReviveOffers)
             .await
     }
 
@@ -335,15 +327,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         };
 
         // Save the executor to state
-        let reservations = self
-            .state
+        self.state
             .executor_manager
-            .register_executor(metadata, executor_data, false)
+            .register_executor(metadata, executor_data)
             .await?;
 
         // If we are using push-based scheduling then reserve this executors slots and send
         // them for scheduling tasks.
-        self.offer_reservation(reservations).await?;
+        self.revive_offers().await?;
 
         Ok(())
     }

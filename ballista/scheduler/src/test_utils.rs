@@ -55,7 +55,6 @@ use datafusion::test_util::scan_empty;
 use crate::cluster::BallistaCluster;
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
-use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 use crate::state::execution_graph::{ExecutionGraph, TaskDescription};
 use ballista_core::utils::default_session_builder;
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
@@ -425,7 +424,7 @@ impl SchedulerTest {
                 "localhost:50050".to_owned(),
                 cluster,
                 BallistaCodec::default(),
-                config,
+                Arc::new(config),
                 metrics_collector,
                 Arc::new(launcher),
             );
@@ -451,7 +450,7 @@ impl SchedulerTest {
             scheduler
                 .state
                 .executor_manager
-                .register_executor(metadata, executor_data, false)
+                .register_executor(metadata, executor_data)
                 .await?;
         }
 
@@ -462,8 +461,12 @@ impl SchedulerTest {
         })
     }
 
-    pub fn pending_tasks(&self) -> usize {
-        self.scheduler.pending_tasks()
+    pub fn pending_job_number(&self) -> usize {
+        self.scheduler.pending_job_number()
+    }
+
+    pub fn running_job_number(&self) -> usize {
+        self.scheduler.running_job_number()
     }
 
     pub fn ctx(&self) -> Result<Arc<SessionContext>> {
@@ -651,12 +654,6 @@ impl SchedulerTest {
         };
 
         final_status
-    }
-
-    pub(crate) fn query_stage_scheduler(
-        &self,
-    ) -> Arc<QueryStageScheduler<LogicalPlanNode, PhysicalPlanNode>> {
-        self.scheduler.query_stage_scheduler()
     }
 }
 
@@ -1006,10 +1003,7 @@ pub fn mock_executor(executor_id: String) -> ExecutorMetadata {
 pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStatus {
     let mut partitions: Vec<protobuf::ShuffleWritePartition> = vec![];
 
-    let num_partitions = task
-        .output_partitioning
-        .map(|p| p.partition_count())
-        .unwrap_or(1);
+    let num_partitions = task.get_output_partition_number();
 
     for partition_id in 0..num_partitions {
         partitions.push(protobuf::ShuffleWritePartition {
@@ -1047,10 +1041,7 @@ pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStat
 pub fn mock_failed_task(task: TaskDescription, failed_task: FailedTask) -> TaskStatus {
     let mut partitions: Vec<protobuf::ShuffleWritePartition> = vec![];
 
-    let num_partitions = task
-        .output_partitioning
-        .map(|p| p.partition_count())
-        .unwrap_or(1);
+    let num_partitions = task.get_output_partition_number();
 
     for partition_id in 0..num_partitions {
         partitions.push(protobuf::ShuffleWritePartition {

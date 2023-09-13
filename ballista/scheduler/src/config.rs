@@ -49,6 +49,8 @@ pub struct SchedulerConfig {
     pub executor_termination_grace_period: u64,
     /// The maximum expected processing time of a scheduler event (microseconds). Zero means disable.
     pub scheduler_event_expected_processing_duration: u64,
+    /// The executor timeout in seconds. It should be longer than executor's heartbeat intervals.
+    pub executor_timeout_seconds: u64,
 }
 
 impl Default for SchedulerConfig {
@@ -64,6 +66,7 @@ impl Default for SchedulerConfig {
             advertise_flight_sql_endpoint: None,
             job_resubmit_interval_ms: None,
             executor_termination_grace_period: 0,
+            executor_timeout_seconds: 180,
             scheduler_event_expected_processing_duration: 0,
         }
     }
@@ -82,6 +85,10 @@ impl SchedulerConfig {
     pub fn with_hostname(mut self, hostname: impl Into<String>) -> Self {
         self.external_host = hostname.into();
         self
+    }
+
+    pub fn is_push_staged_scheduling(&self) -> bool {
+        true
     }
 
     pub fn with_port(mut self, port: u16) -> Self {

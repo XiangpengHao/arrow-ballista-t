@@ -338,8 +338,8 @@ filter_expr={}",
         format!("ShuffleReader [{} partitions]", exec.partition.len())
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
         format!(
-            "ShuffleWriter [{} partitions]",
-            exec.output_partitioning().partition_count()
+            "ShuffleWriter [{}]",
+            format_partitioning(exec.output_partitioning()),
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()

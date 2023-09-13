@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use async_trait::async_trait;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -62,7 +61,7 @@ pub struct ShuffleReaderExec {
     pub stage_id: usize,
     /// Each partition of a shuffle can read data from multiple locations
     pub partition: Vec<Vec<PartitionLocation>>,
-    pub(crate) schema: SchemaRef,
+    pub schema: SchemaRef,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
 }
@@ -325,24 +324,13 @@ fn check_is_local_location(location: &PartitionLocation) -> bool {
     std::path::Path::new(location.path.as_str()).exists()
 }
 
-/// Partition reader Trait, different partition reader can have
-#[async_trait]
-trait PartitionReader: Send + Sync + Clone {
-    // Read partition data from PartitionLocation
-    async fn fetch_partition(
-        &self,
-        location: &PartitionLocation,
-    ) -> result::Result<SendableRecordBatchStream, BallistaError>;
-}
-
 #[derive(Clone)]
 enum PartitionReaderEnum {
     Local,
     FlightRemote,
 }
 
-#[async_trait]
-impl PartitionReader for PartitionReaderEnum {
+impl PartitionReaderEnum {
     // Notice return `BallistaError::FetchFailed` will let scheduler re-schedule the task.
     async fn fetch_partition(
         &self,

@@ -319,14 +319,13 @@ impl ExecutorManager {
     }
 
     /// Remove the executor within the scheduler.
-    pub fn remove_executor(
+    pub async fn remove_executor(
         &self,
         executor_id: &str,
         reason: Option<String>,
     ) -> Result<()> {
         info!("Removing executor {}: {:?}", executor_id, reason);
-        self.cluster_state.remove_executor(executor_id);
-        Ok(())
+        self.cluster_state.remove_executor(executor_id).await
     }
 
     pub(crate) fn save_executor_heartbeat(

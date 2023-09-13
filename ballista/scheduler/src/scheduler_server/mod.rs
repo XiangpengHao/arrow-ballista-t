@@ -251,7 +251,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                         &executor_id,
                         Some(stop_reason.clone()),
                         0,
-                    );
+                    )
+                    .await;
 
                     // If executor is not already terminating then stop it. If it is terminating then it should already be shutting
                     // down and we do not need to do anything here.
@@ -292,7 +293,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         Ok(())
     }
 
-    pub(crate) fn remove_executor(
+    pub(crate) async fn remove_executor(
         executor_manager: ExecutorManager,
         event_sender: EventSender<QueryStageSchedulerEvent>,
         executor_id: &str,
@@ -305,7 +306,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             tokio::time::sleep(Duration::from_secs(wait_secs)).await;
 
             // Update the executor manager immediately here
-            if let Err(e) = executor_manager.remove_executor(&executor_id, reason.clone())
+            if let Err(e) = executor_manager
+                .remove_executor(&executor_id, reason.clone())
+                .await
             {
                 error!("error removing executor {executor_id}: {e:?}");
             }

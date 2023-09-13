@@ -215,7 +215,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         executor_id: &str,
         reason: Option<String>,
     ) {
-        if let Err(e) = self.executor_manager.remove_executor(executor_id, reason) {
+        if let Err(e) = self
+            .executor_manager
+            .remove_executor(executor_id, reason)
+            .await
+        {
             warn!("Fail to remove executor {}: {}", executor_id, e);
         }
 

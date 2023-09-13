@@ -130,7 +130,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 }
 
 #[derive(Clone)]
-pub(crate) struct JobInfoCache {
+pub struct JobInfoCache {
     // Cache for active execution graphs curated by this scheduler
     pub(crate) execution_graph: Arc<RwLock<ExecutionGraph>>,
     // Cache for job status

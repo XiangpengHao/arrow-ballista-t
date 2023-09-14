@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
-#[cfg(not(test))]
-use ballista_core::error::BallistaError;
-use ballista_core::error::Result;
-use ballista_core::serde::protobuf;
+use ballista_core::error::{BallistaError, Result};
+use ballista_core::serde::protobuf::{self, MultiTaskDefinition, StopExecutorParams};
 
 use crate::cluster::memory::InMemoryClusterState;
 use crate::cluster::{BoundTask, ClusterState, ExecutorSlot};
@@ -42,52 +40,6 @@ use tonic::transport::Channel;
 use super::task_manager::JobInfoCache;
 
 type ExecutorClients = Arc<DashMap<String, ExecutorGrpcClient<Channel>>>;
-
-/// Represents a task slot that is reserved (i.e. available for scheduling but not visible to the
-/// rest of the system).
-/// When tasks finish we want to preferentially assign new tasks from the same job, so the reservation
-/// can already be assigned to a particular job ID. In that case, the scheduler will try to schedule
-/// available tasks for that job to the reserved task slot.
-#[derive(Clone, Debug)]
-pub struct ExecutorReservation {
-    pub executor_id: String,
-    pub job_id: Option<String>,
-}
-
-impl ExecutorReservation {
-    pub fn new_free(executor_id: String) -> Self {
-        Self {
-            executor_id,
-            job_id: None,
-        }
-    }
-
-    pub fn new_assigned(executor_id: String, job_id: String) -> Self {
-        Self {
-            executor_id,
-            job_id: Some(job_id),
-        }
-    }
-
-    pub fn assign(mut self, job_id: String) -> Self {
-        self.job_id = Some(job_id);
-        self
-    }
-
-    pub fn assigned(&self) -> bool {
-        self.job_id.is_some()
-    }
-}
-
-// TODO move to configuration file
-/// Default executor timeout in seconds, it should be longer than executor's heartbeat intervals.
-/// Only after missing two or tree consecutive heartbeats from a executor, the executor is mark
-/// to be dead.
-pub const DEFAULT_EXECUTOR_TIMEOUT_SECONDS: u64 = 180;
-
-// TODO move to configuration file
-/// Interval check for expired or dead executors
-pub const EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS: u64 = 15;
 
 #[derive(Clone)]
 pub struct ExecutorManager {
@@ -172,15 +124,18 @@ impl ExecutorManager {
         }
 
         for (executor_id, infos) in tasks_to_cancel {
-            if let Ok(mut client) = self.get_client(executor_id).await {
-                client
-                    .cancel_tasks(CancelTasksParams { task_infos: infos })
-                    .await?;
-            } else {
-                error!(
-                    "Failed to get client for executor ID {} to cancel tasks",
-                    executor_id
-                )
+            match self.get_client(executor_id).await {
+                Ok(mut client) => {
+                    client
+                        .cancel_tasks(CancelTasksParams { task_infos: infos })
+                        .await?;
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to get client for executor ID {} to cancel tasks, err: {}",
+                        executor_id, e
+                    )
+                }
             }
         }
         Ok(())
@@ -220,22 +175,25 @@ impl ExecutorManager {
         let alive_executors = self.get_alive_executors();
         for executor in alive_executors {
             let job_id_clone = job_id.to_owned();
-            if let Ok(mut client) = self.get_client(&executor).await {
-                tokio::spawn(async move {
-                    if let Err(err) = client
-                        .remove_job_data(RemoveJobDataParams {
-                            job_id: job_id_clone,
-                        })
-                        .await
-                    {
-                        warn!(
-                            "Failed to call remove_job_data on Executor {} due to {:?}",
-                            executor, err
-                        )
-                    }
-                });
-            } else {
-                warn!("Failed to get client for Executor {}", executor)
+            match self.get_client(&executor).await {
+                Ok(mut client) => {
+                    tokio::spawn(async move {
+                        if let Err(err) = client
+                            .remove_job_data(RemoveJobDataParams {
+                                job_id: job_id_clone,
+                            })
+                            .await
+                        {
+                            warn!(
+                                "Failed to call remove_job_data on Executor {} due to {:?}",
+                                executor, err
+                            )
+                        }
+                    });
+                }
+                Err(e) => {
+                    warn!("Failed to get client for Executor {}: {}", executor, e);
+                }
             }
         }
     }
@@ -328,6 +286,58 @@ impl ExecutorManager {
         self.cluster_state.remove_executor(executor_id).await
     }
 
+    pub async fn stop_executor(&self, executor_id: &str, stop_reason: String) {
+        let executor_id = executor_id.to_string();
+        match self.get_client(&executor_id).await {
+            Ok(mut client) => {
+                tokio::task::spawn(async move {
+                    match client
+                        .stop_executor(StopExecutorParams {
+                            executor_id: executor_id.to_string(),
+                            reason: stop_reason,
+                            force: true,
+                        })
+                        .await
+                    {
+                        Err(error) => {
+                            warn!("Failed to send stop_executor rpc due to, {}", error);
+                        }
+                        Ok(_value) => {}
+                    }
+                });
+            }
+            Err(_) => {
+                warn!(
+                    "Executor is already dead, failed to connect to Executor {}",
+                    executor_id
+                );
+            }
+        }
+    }
+
+    pub async fn launch_multi_task(
+        &self,
+        executor_id: &str,
+        multi_tasks: Vec<MultiTaskDefinition>,
+        scheduler_id: String,
+    ) -> Result<()> {
+        let mut client = self.get_client(executor_id).await?;
+        client
+            .launch_multi_task(protobuf::LaunchMultiTaskParams {
+                multi_tasks,
+                scheduler_id,
+            })
+            .await
+            .map_err(|e| {
+                BallistaError::Internal(format!(
+                    "Failed to connect to executor {}: {:?}",
+                    executor_id, e
+                ))
+            })?;
+
+        Ok(())
+    }
+
     pub(crate) fn save_executor_heartbeat(
         &self,
         heartbeat: ExecutorHeartbeat,
@@ -374,24 +384,13 @@ impl ExecutorManager {
     }
 
     /// Return a list of expired executors
-    pub(crate) fn get_expired_executors(
-        &self,
-        termination_grace_period: u64,
-    ) -> Vec<ExecutorHeartbeat> {
-        let now_epoch_ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards");
+    pub(crate) fn get_expired_executors(&self) -> Vec<ExecutorHeartbeat> {
         // Threshold for last heartbeat from Active executor before marking dead
-        let last_seen_threshold = now_epoch_ts
-            .checked_sub(Duration::from_secs(DEFAULT_EXECUTOR_TIMEOUT_SECONDS))
-            .unwrap_or_else(|| Duration::from_secs(0))
-            .as_secs();
+        let last_seen_threshold = get_time_before(self.config.executor_timeout_seconds);
 
         // Threshold for last heartbeat for Fenced executor before marking dead
-        let termination_wait_threshold = now_epoch_ts
-            .checked_sub(Duration::from_secs(termination_grace_period))
-            .unwrap_or_else(|| Duration::from_secs(0))
-            .as_secs();
+        let termination_wait_threshold =
+            get_time_before(self.config.executor_termination_grace_period);
 
         self.cluster_state
             .executor_heartbeats()

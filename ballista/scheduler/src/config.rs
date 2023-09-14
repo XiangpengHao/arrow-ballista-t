@@ -51,6 +51,8 @@ pub struct SchedulerConfig {
     pub scheduler_event_expected_processing_duration: u64,
     /// The executor timeout in seconds. It should be longer than executor's heartbeat intervals.
     pub executor_timeout_seconds: u64,
+    /// The interval to check expired or dead executors
+    pub expire_dead_executor_interval_seconds: u64,
 }
 
 impl Default for SchedulerConfig {
@@ -68,6 +70,7 @@ impl Default for SchedulerConfig {
             executor_termination_grace_period: 0,
             executor_timeout_seconds: 180,
             scheduler_event_expected_processing_duration: 0,
+            expire_dead_executor_interval_seconds: 15,
         }
     }
 }

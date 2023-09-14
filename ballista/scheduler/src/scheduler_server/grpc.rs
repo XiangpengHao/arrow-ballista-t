@@ -373,8 +373,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             &executor_id,
             Some(reason),
             self.executor_termination_grace_period,
-        )
-        .await;
+        );
 
         Ok(Response::new(ExecutorStoppedResult {}))
     }

@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::event_loop::{EventLoop, EventSender};
 use ballista_core::error::Result;
-use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
+use ballista_core::serde::protobuf::TaskStatus;
 use ballista_core::serde::BallistaCodec;
 
 use datafusion::execution::context::SessionState;
@@ -38,9 +38,7 @@ use log::{error, warn};
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 
-use crate::state::executor_manager::{
-    ExecutorManager, DEFAULT_EXECUTOR_TIMEOUT_SECONDS, EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
-};
+use crate::state::executor_manager::ExecutorManager;
 
 #[cfg(test)]
 use crate::state::task_manager::TaskLauncher;
@@ -212,15 +210,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     fn expire_dead_executors(&self) -> Result<()> {
         let state = self.state.clone();
         let event_sender = self.query_stage_event_loop.get_sender()?;
-        let termination_grace_period = self.executor_termination_grace_period;
         tokio::task::spawn(async move {
             loop {
-                let expired_executors = state
-                    .executor_manager
-                    .get_expired_executors(termination_grace_period);
+                let expired_executors = state.executor_manager.get_expired_executors();
                 for expired in expired_executors {
                     let executor_id = expired.executor_id.clone();
-                    let executor_manager = state.executor_manager.clone();
 
                     let sender_clone = event_sender.clone();
 
@@ -234,11 +228,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
                     let stop_reason = if terminating {
                         format!(
-                        "TERMINATING executor {executor_id} heartbeat timed out after {termination_grace_period}s"
+                        "TERMINATING executor {executor_id} heartbeat timed out after {}s", state.config.executor_termination_grace_period,
                     )
                     } else {
                         format!(
-                            "ACTIVE executor {executor_id} heartbeat timed out after {DEFAULT_EXECUTOR_TIMEOUT_SECONDS}s",
+                            "ACTIVE executor {executor_id} heartbeat timed out after {}s",
+                            state.config.executor_timeout_seconds,
                         )
                     };
 
@@ -246,46 +241,24 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
                     // If executor is expired, remove it immediately
                     Self::remove_executor(
-                        executor_manager,
+                        state.executor_manager.clone(),
                         sender_clone,
                         &executor_id,
                         Some(stop_reason.clone()),
                         0,
-                    )
-                    .await;
+                    );
 
                     // If executor is not already terminating then stop it. If it is terminating then it should already be shutting
                     // down and we do not need to do anything here.
                     if !terminating {
-                        match state.executor_manager.get_client(&executor_id).await {
-                            Ok(mut client) => {
-                                tokio::task::spawn(async move {
-                                    match client
-                                        .stop_executor(StopExecutorParams {
-                                            executor_id,
-                                            reason: stop_reason,
-                                            force: true,
-                                        })
-                                        .await
-                                    {
-                                        Err(error) => {
-                                            warn!(
-                                            "Failed to send stop_executor rpc due to, {}",
-                                            error
-                                        );
-                                        }
-                                        Ok(_value) => {}
-                                    }
-                                });
-                            }
-                            Err(_) => {
-                                warn!("Executor is already dead, failed to connect to Executor {}", executor_id);
-                            }
-                        }
+                        state
+                            .executor_manager
+                            .stop_executor(&executor_id, stop_reason)
+                            .await;
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(
-                    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
+                    state.config.expire_dead_executor_interval_seconds,
                 ))
                 .await;
             }
@@ -293,7 +266,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         Ok(())
     }
 
-    pub(crate) async fn remove_executor(
+    pub(crate) fn remove_executor(
         executor_manager: ExecutorManager,
         event_sender: EventSender<QueryStageSchedulerEvent>,
         executor_id: &str,

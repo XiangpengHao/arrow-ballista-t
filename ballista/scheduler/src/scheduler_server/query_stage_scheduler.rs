@@ -14,15 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
 
+use ballista_core::error::{BallistaError, Result};
+// use ballista_core::event_loop::{EventAction, EventSender};
+
 use crate::config::SchedulerConfig;
 use crate::event_loop::{EventAction, EventSender};
-use ballista_core::error::{BallistaError, Result};
-
 use crate::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::timestamp_millis;
 use datafusion_proto::logical_plan::AsLogicalPlan;
@@ -99,6 +102,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     error!("Fail to queue job {} due to {:?}", job_id, e);
                     return Ok(());
                 }
+
                 let state = self.state.clone();
                 tokio::spawn(async move {
                     let event = if let Err(e) = state
@@ -135,9 +139,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
                 info!("Job {} submitted", job_id);
 
-                event_sender
-                    .post_event(QueryStageSchedulerEvent::ReviveOffers)
-                    .await?;
+                if self.state.config.is_push_staged_scheduling() {
+                    event_sender
+                        .post_event(QueryStageSchedulerEvent::ReviveOffers)
+                        .await?;
+                }
             }
             QueryStageSchedulerEvent::JobPlanningFailed {
                 job_id,
@@ -169,7 +175,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .record_completed(&job_id, queued_at, completed_at);
 
                 info!("Job {} success", job_id);
-                self.state.task_manager.succeed_job(&job_id).await?;
+                if let Err(e) = self.state.task_manager.succeed_job(&job_id).await {
+                    error!(
+                        "Fail to invoke succeed_job for job {} due to {:?}",
+                        job_id, e
+                    );
+                }
                 self.state.clean_up_successful_job(job_id);
             }
             QueryStageSchedulerEvent::JobRunningFailed {
@@ -182,37 +193,59 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .record_failed(&job_id, queued_at, failed_at);
 
                 error!("Job {} running failed", job_id);
-                let (running_tasks, _pending_tasks) = self
+                match self
                     .state
                     .task_manager
                     .abort_job(&job_id, fail_message)
-                    .await?;
-
-                if !running_tasks.is_empty() {
-                    event_sender
-                        .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))
-                        .await?;
+                    .await
+                {
+                    Ok((running_tasks, _pending_tasks)) => {
+                        if !running_tasks.is_empty() {
+                            event_sender
+                                .post_event(QueryStageSchedulerEvent::CancelTasks(
+                                    running_tasks,
+                                ))
+                                .await?;
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Fail to invoke abort_job for job {} due to {:?}",
+                            job_id, e
+                        );
+                    }
                 }
                 self.state.clean_up_failed_job(job_id);
             }
             QueryStageSchedulerEvent::JobUpdated(job_id) => {
                 info!("Job {} Updated", job_id);
-                self.state.task_manager.update_job(&job_id).await?;
+                if let Err(e) = self.state.task_manager.update_job(&job_id).await {
+                    error!(
+                        "Fail to invoke update_job for job {} due to {:?}",
+                        job_id, e
+                    );
+                }
             }
             QueryStageSchedulerEvent::JobCancel(job_id) => {
                 self.metrics_collector.record_cancelled(&job_id);
 
                 info!("Job {} Cancelled", job_id);
-                let (running_tasks, _pending_tasks) =
-                    self.state.task_manager.cancel_job(&job_id).await?;
+                match self.state.task_manager.cancel_job(&job_id).await {
+                    Ok((running_tasks, _pending_tasks)) => {
+                        event_sender
+                            .post_event(QueryStageSchedulerEvent::CancelTasks(
+                                running_tasks,
+                            ))
+                            .await?;
+                    }
+                    Err(e) => {
+                        error!(
+                            "Fail to invoke cancel_job for job {} due to {:?}",
+                            job_id, e
+                        );
+                    }
+                }
                 self.state.clean_up_failed_job(job_id);
-
-                event_sender
-                    .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))
-                    .await?;
-            }
-            QueryStageSchedulerEvent::ReviveOffers => {
-                self.state.revive_offers(event_sender).await?;
             }
             QueryStageSchedulerEvent::TaskUpdating(executor_id, tasks_status) => {
                 debug!(
@@ -221,19 +254,23 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 );
 
                 let num_status = tasks_status.len();
-                self.state
-                    .executor_manager
-                    .unbind_tasks(vec![(executor_id.clone(), num_status as u32)])
-                    .await?;
+                if self.state.config.is_push_staged_scheduling() {
+                    self.state
+                        .executor_manager
+                        .unbind_tasks(vec![(executor_id.clone(), num_status as u32)])
+                        .await?;
+                }
                 match self
                     .state
                     .update_task_statuses(&executor_id, tasks_status)
                     .await
                 {
                     Ok(stage_events) => {
-                        event_sender
-                            .post_event(QueryStageSchedulerEvent::ReviveOffers)
-                            .await?;
+                        if self.state.config.is_push_staged_scheduling() {
+                            event_sender
+                                .post_event(QueryStageSchedulerEvent::ReviveOffers)
+                                .await?;
+                        }
 
                         for stage_event in stage_events {
                             event_sender.post_event(stage_event).await?;
@@ -248,13 +285,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     }
                 }
             }
+            QueryStageSchedulerEvent::ReviveOffers => {
+                self.state.revive_offers(event_sender).await?;
+            }
             QueryStageSchedulerEvent::ExecutorLost(executor_id, _) => {
                 match self.state.task_manager.executor_lost(&executor_id).await {
                     Ok(tasks) => {
                         if !tasks.is_empty() {
-                            event_sender
-                                .post_event(QueryStageSchedulerEvent::CancelTasks(tasks))
-                                .await?;
+                            if let Err(e) = self
+                                .state
+                                .executor_manager
+                                .cancel_running_tasks(tasks)
+                                .await
+                            {
+                                warn!("Fail to cancel running tasks due to {:?}", e);
+                            }
                         }
                     }
                     Err(e) => {
@@ -266,10 +311,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 }
             }
             QueryStageSchedulerEvent::CancelTasks(tasks) => {
-                self.state
+                if let Err(e) = self
+                    .state
                     .executor_manager
                     .cancel_running_tasks(tasks)
-                    .await?;
+                    .await
+                {
+                    warn!("Fail to cancel running tasks due to {:?}", e);
+                }
             }
             QueryStageSchedulerEvent::JobDataClean(job_id) => {
                 self.state.executor_manager.clean_up_job_data(job_id);
@@ -277,7 +326,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         }
         if let Some((start, ec)) = time_recorder {
             let duration = start.elapsed();
-            if duration.ge(&core::time::Duration::from_micros(
+            if duration.ge(&Duration::from_micros(
                 self.config.scheduler_event_expected_processing_duration,
             )) {
                 warn!(

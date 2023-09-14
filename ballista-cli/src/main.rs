@@ -126,7 +126,7 @@ pub async fn main() -> Result<()> {
         }
     };
 
-    let mut print_options = PrintOptions {
+    let print_options = PrintOptions {
         format: args.format,
         quiet: args.quiet,
     };
@@ -152,7 +152,7 @@ pub async fn main() -> Result<()> {
         if !rc.is_empty() {
             exec::exec_from_files(rc, &ctx, &print_options).await
         }
-        exec::exec_from_repl(&ctx, &mut print_options).await;
+        exec::exec_from_repl(&ctx, &print_options).await;
     }
 
     Ok(())

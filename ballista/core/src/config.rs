@@ -181,7 +181,6 @@ impl BallistaConfig {
             ConfigEntry::new(BALLISTA_WITH_INFORMATION_SCHEMA.to_string(),
                              "Sets whether enable information_schema".to_string(),
                              DataType::Boolean, Some("false".to_string())),
-        
         ];
         entries
             .iter()
@@ -244,7 +243,6 @@ impl BallistaConfig {
             v.parse::<bool>().unwrap()
         }
     }
-   
 }
 
 // an enum used to configure the log rolling policy

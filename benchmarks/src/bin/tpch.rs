@@ -294,9 +294,9 @@ async fn benchmark_datafusion(opt: DataFusionBenchmarkOpt) -> Result<Vec<RecordB
     // register tables
     for table in TABLES {
         let table_provider = {
-            let mut session_state = ctx.state();
+            let session_state = ctx.state();
             get_table(
-                &mut session_state,
+                &session_state,
                 opt.path.to_str().unwrap(),
                 table,
                 opt.file_format.as_str(),
@@ -344,7 +344,7 @@ async fn benchmark_datafusion(opt: DataFusionBenchmarkOpt) -> Result<Vec<RecordB
     println!("Query {} avg time: {:.2} ms", opt.query, avg);
 
     if let Some(path) = &opt.output_path {
-        write_summary_json(&mut benchmark_run, path)?;
+        write_summary_json(&benchmark_run, path)?;
     }
 
     Ok(result)
@@ -427,13 +427,13 @@ async fn benchmark_ballista(opt: BallistaBenchmarkOpt) -> Result<()> {
     println!("Query {} avg time: {:.2} ms", opt.query, avg);
 
     if let Some(path) = &opt.output_path {
-        write_summary_json(&mut benchmark_run, path)?;
+        write_summary_json(&benchmark_run, path)?;
     }
 
     Ok(())
 }
 
-fn write_summary_json(benchmark_run: &mut BenchmarkRun, path: &Path) -> Result<()> {
+fn write_summary_json(benchmark_run: &BenchmarkRun, path: &Path) -> Result<()> {
     let json =
         serde_json::to_string_pretty(&benchmark_run).expect("summary is serializable");
     let filename = format!(
@@ -805,7 +805,7 @@ async fn convert_tbl(opt: ConvertOpt) -> Result<()> {
 }
 
 async fn get_table(
-    ctx: &mut SessionState,
+    ctx: &SessionState,
     path: &str,
     table: &str,
     table_format: &str,

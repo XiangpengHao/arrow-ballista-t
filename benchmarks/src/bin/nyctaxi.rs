@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     let config = SessionConfig::new()
         .with_target_partitions(opt.partitions)
         .with_batch_size(opt.batch_size);
-    let mut ctx = SessionContext::with_config(config);
+    let ctx = SessionContext::with_config(config);
 
     let path = opt.path.to_str().unwrap();
 
@@ -92,11 +92,11 @@ async fn main() -> Result<()> {
         }
     }
 
-    datafusion_sql_benchmarks(&mut ctx, opt.iterations, opt.debug).await
+    datafusion_sql_benchmarks(&ctx, opt.iterations, opt.debug).await
 }
 
 async fn datafusion_sql_benchmarks(
-    ctx: &mut SessionContext,
+    ctx: &SessionContext,
     iterations: usize,
     debug: bool,
 ) -> Result<()> {

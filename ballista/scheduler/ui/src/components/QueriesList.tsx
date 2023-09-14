@@ -36,13 +36,18 @@ import {
 } from "@chakra-ui/react";
 import { Column, DataTable } from "./DataTable";
 import { FaStop } from "react-icons/fa";
-import { GrDocumentDownload, GrOverview, GrZoomIn, GrZoomOut, GrContract } from "react-icons/gr";
+import {
+  GrDocumentDownload,
+  GrOverview,
+  GrZoomIn,
+  GrZoomOut,
+  GrContract,
+} from "react-icons/gr";
 import fileDownload from "js-file-download";
 import SVG from "react-inlinesvg";
 import { JobStagesQueries } from "./JobStagesMetrics";
 import { graphviz, wasmFolder } from "@hpcc-js/wasm";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
-
 
 export enum QueryStatus {
   QUEUED = "QUEUED",
@@ -57,9 +62,9 @@ export interface Query {
   job_status: string;
   num_stages: number;
   percent_complete: number;
-  start_time: number,
-  elapsed: number,
-  output_row_cnt: number,
+  start_time: number;
+  elapsed: number;
+  output_row_cnt: number;
 }
 
 export interface QueriesListProps {
@@ -95,9 +100,9 @@ export const ActionsCell = (props: any) => {
 
   useEffect(() => {
     if (isOpen && dot_data) {
-      graphviz.dot(dot_data).then(svg => {
+      graphviz.dot(dot_data).then((svg) => {
         setSvgData(svg);
-      })
+      });
     }
   }, [dot_data, isOpen]);
 
@@ -112,7 +117,9 @@ export const ActionsCell = (props: any) => {
       setSvgData(svgContent);
     }
     console.log(svgContent);
-    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const blob = new Blob([svgContent], {
+      type: "image/svg+xml;charset=utf-8",
+    });
     const buffer = await blob.arrayBuffer();
     fileDownload(buffer, filename + ".svg");
   };
@@ -133,9 +140,7 @@ export const ActionsCell = (props: any) => {
       <Box mx={2}></Box>
       <button
         onClick={async () => {
-          await handleDownload(
-            props.value.job_id
-          );
+          await handleDownload(props.value.job_id);
         }}
       >
         <GrDocumentDownload title={"Download SVG Plan"} />
@@ -151,13 +156,24 @@ export const ActionsCell = (props: any) => {
             {props.value.job_name} ({props.value.job_id})
           </ModalHeader>
           <ModalCloseButton />
-          <ModalBody margin="auto" style={{
-            width: "1200px", height: "100%", backgroundColor: '#aeaeae', padding: "0", display: 'flex',
-            justifyContent: 'center', flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <TransformWrapper initialPositionX={100}
-              initialPositionY={0} zoomAnimation={{ animationTime: 100 }}>
+          <ModalBody
+            margin="auto"
+            style={{
+              width: "1200px",
+              height: "100%",
+              backgroundColor: "#aeaeae",
+              padding: "0",
+              display: "flex",
+              justifyContent: "center",
+              flexDirection: "column",
+              alignItems: "center",
+            }}
+          >
+            <TransformWrapper
+              initialPositionX={100}
+              initialPositionY={0}
+              zoomAnimation={{ animationTime: 100 }}
+            >
               {({ zoomIn, zoomOut, resetTransform, ...rest }) => (
                 <React.Fragment>
                   <div className="tools">
@@ -172,7 +188,11 @@ export const ActionsCell = (props: any) => {
                     </button>
                   </div>
                   <TransformComponent>
-                    <SVG innerRef={ref} src={svg_data} style={{ width: '1000', height: '1000' }} />
+                    <SVG
+                      innerRef={ref}
+                      src={svg_data}
+                      style={{ width: "1000", height: "1000" }}
+                    />
                   </TransformComponent>
                 </React.Fragment>
               )}
@@ -185,7 +205,7 @@ export const ActionsCell = (props: any) => {
           </ModalFooter>
         </ModalContent>
       </Modal>
-    </Flex >
+    </Flex>
   );
 };
 

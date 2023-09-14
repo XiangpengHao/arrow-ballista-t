@@ -16,7 +16,7 @@
 // under the License.
 
 import React from "react";
-import { Box, Flex, } from "@chakra-ui/react";
+import { Box, Flex } from "@chakra-ui/react";
 import { SchedulerState } from "./Summary";
 
 export const NavBarContainer: React.FunctionComponent<
@@ -47,8 +47,7 @@ export const Header: React.FunctionComponent<HeaderProps> = ({
 }) => {
   return (
     <NavBarContainer borderBottom={"1px"} borderBottomColor={"#f1f1f1"}>
-      <Box w="100%" alignItems={"flex-start"}>
-      </Box>
+      <Box w="100%" alignItems={"flex-start"}></Box>
     </NavBarContainer>
   );
 };

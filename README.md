@@ -25,15 +25,14 @@ Ballista is a distributed SQL query engine powered by the Rust implementation of
 If you are looking for documentation for a released version of Ballista, please refer to the
 [Ballista User Guide][user-guide].
 
-
 ## Benchmark for TPC-H
 
 ```bash
 docker-compose up --build
 docker-compose run ballista-client bash -c '/root/tpch benchmark ballista --host ballista-scheduler --port 50050 --query 12 --path /data --format tbl --expected /data --debug --iterations 1'
 ```
-Check UI at `http://c220g5-111223.wisc.cloudlab.us`
 
+Check UI at `http://c220g5-111223.wisc.cloudlab.us`
 
 ## Overview
 

@@ -49,9 +49,9 @@ interface Row {
 export type Column<Row> =
   | RTColumn
   | {
-    isNumeric?: boolean;
-    render?: RenderFn;
-  };
+      isNumeric?: boolean;
+      render?: RenderFn;
+    };
 
 interface DataTableProps {
   columns: Column<Row>[];

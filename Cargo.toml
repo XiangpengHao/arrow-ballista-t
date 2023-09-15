@@ -25,6 +25,12 @@ members = [
     "ballista-cli",
     "examples",
 ]
+default-members = [
+    "ballista/core",
+    "ballista/executor",
+    "ballista/scheduler",
+    "benchmarks",
+]
 resolver = "2"
 
 [workspace.dependencies]

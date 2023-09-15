@@ -15,6 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 version: '3.3'
+
+volumes:
+  ipc_volume:
+
 services:
   ballista-scheduler:
     image: ballista-scheduler
@@ -29,6 +33,8 @@ services:
       - RUST_LOG=ballista=info
     volumes:
       - ./benchmarks/data:/data
+      - ipc_volume:/dev/shm
+    ipc: "shareable"
     healthcheck:
       test: ["CMD", "nc", "-z", "ballista-scheduler", "50050"]
       interval: 5s
@@ -47,6 +53,8 @@ services:
       - RUST_LOG=ballista=info
     volumes:
       - ./benchmarks/data:/data
+      - ipc_volume:/dev/shm
+    ipc: "shareable"
     depends_on:
       - ballista-scheduler
     healthcheck:

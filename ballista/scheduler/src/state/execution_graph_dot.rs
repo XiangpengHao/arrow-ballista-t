@@ -339,7 +339,7 @@ filter_expr={}",
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
         format!(
             "ShuffleWriter [{}]",
-            format_partitioning(exec.output_partitioning()),
+            format_optioned_partition(exec.shuffle_output_partitioning()),
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()
@@ -390,8 +390,19 @@ fn format_partitioning(x: Partitioning) -> String {
             format!("{n} partitions")
         }
         Partitioning::Hash(expr, n) => {
-            format!("{} partitions, expr={}", n, format_expr_list(&expr))
+            format!(
+                "{} partitions, expr={}",
+                n,
+                sanitize(&format_expr_list(&expr), Some(100))
+            )
         }
+    }
+}
+
+fn format_optioned_partition(x: Option<&Partitioning>) -> String {
+    match x {
+        Some(partitioning) => format_partitioning(partitioning.to_owned()),
+        None => "None".to_string(),
     }
 }
 

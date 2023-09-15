@@ -467,19 +467,19 @@ node [fontname="Courier"];
 edge [fontname="Courier"];
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
-		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_1_0 [shape=box, label="ShuffleWriter [48 partitions, expr=a@0]"]
 		stage_1_0_0 [shape=box, label="MemoryExec"]
 		stage_1_0_0 -> stage_1_0
 	}
 	subgraph cluster1 {
 		label = "Stage 2 [Resolved]";
-		stage_2_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_2_0 [shape=box, label="ShuffleWriter [48 partitions, expr=a@0]"]
 		stage_2_0_0 [shape=box, label="MemoryExec"]
 		stage_2_0_0 -> stage_2_0
 	}
 	subgraph cluster2 {
 		label = "Stage 3 [Unresolved]";
-		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions]"]
+		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions, expr=b@3]"]
 		stage_3_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_3_0_0_0 [shape=box, label="HashJoin
 join_expr=a@0 = a@0
@@ -497,13 +497,13 @@ filter_expr="]
 	}
 	subgraph cluster3 {
 		label = "Stage 4 [Resolved]";
-		stage_4_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_4_0 [shape=box, label="ShuffleWriter [48 partitions, expr=b@1]"]
 		stage_4_0_0 [shape=box, label="MemoryExec"]
 		stage_4_0_0 -> stage_4_0
 	}
 	subgraph cluster4 {
 		label = "Stage 5 [Unresolved]";
-		stage_5_0 [shape=box, label="ShuffleWriter [48 partitions]"]
+		stage_5_0 [shape=box, label="ShuffleWriter [None]"]
 		stage_5_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_5_0_0_0 [shape=box, label="HashJoin
 join_expr=b@3 = b@1
@@ -539,7 +539,7 @@ filter_expr="]
 graph [fontname="Courier"];
 node [fontname="Courier"];
 edge [fontname="Courier"];
-		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions]"]
+		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions, expr=b@3]"]
 		stage_3_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_3_0_0_0 [shape=box, label="HashJoin
 join_expr=a@0 = a@0
@@ -572,25 +572,25 @@ node [fontname="Courier"];
 edge [fontname="Courier"];
 	subgraph cluster0 {
 		label = "Stage 1 [Resolved]";
-		stage_1_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_1_0 [shape=box, label="ShuffleWriter [48 partitions, expr=a@0]"]
 		stage_1_0_0 [shape=box, label="MemoryExec"]
 		stage_1_0_0 -> stage_1_0
 	}
 	subgraph cluster1 {
 		label = "Stage 2 [Resolved]";
-		stage_2_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_2_0 [shape=box, label="ShuffleWriter [48 partitions, expr=a@0]"]
 		stage_2_0_0 [shape=box, label="MemoryExec"]
 		stage_2_0_0 -> stage_2_0
 	}
 	subgraph cluster2 {
 		label = "Stage 3 [Resolved]";
-		stage_3_0 [shape=box, label="ShuffleWriter [0 partitions]"]
+		stage_3_0 [shape=box, label="ShuffleWriter [48 partitions, expr=a@0]"]
 		stage_3_0_0 [shape=box, label="MemoryExec"]
 		stage_3_0_0 -> stage_3_0
 	}
 	subgraph cluster3 {
 		label = "Stage 4 [Unresolved]";
-		stage_4_0 [shape=box, label="ShuffleWriter [48 partitions]"]
+		stage_4_0 [shape=box, label="ShuffleWriter [None]"]
 		stage_4_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_4_0_0_0 [shape=box, label="HashJoin
 join_expr=a@1 = a@0
@@ -635,7 +635,7 @@ filter_expr="]
 graph [fontname="Courier"];
 node [fontname="Courier"];
 edge [fontname="Courier"];
-		stage_4_0 [shape=box, label="ShuffleWriter [48 partitions]"]
+		stage_4_0 [shape=box, label="ShuffleWriter [None]"]
 		stage_4_0_0 [shape=box, label="CoalesceBatches [batchSize=4096]"]
 		stage_4_0_0_0 [shape=box, label="HashJoin
 join_expr=a@1 = a@0

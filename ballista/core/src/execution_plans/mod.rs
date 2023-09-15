@@ -19,6 +19,8 @@
 //! several Ballista executors.
 
 mod distributed_query;
+mod rm_shuffle_reader;
+mod rm_shuffle_writer;
 mod shuffle_reader;
 mod shuffle_writer;
 mod unresolved_shuffle;

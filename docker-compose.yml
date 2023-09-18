@@ -25,7 +25,7 @@ services:
     build:
       dockerfile: dev/docker/ballista-scheduler.Dockerfile
       context: .
-    command: "--bind-host 0.0.0.0 --external-host ballista-scheduler --shuffle-use-remote-memory false"
+    command: "--bind-host 0.0.0.0 --external-host ballista-scheduler --shuffle-use-remote-memory true"
     ports:
       - "80:80"
       - "50050:50050"

@@ -20,7 +20,8 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleReaderExec, RemoteShuffleWriterExec, ShuffleReaderExec, ShuffleWriter,
+    ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -170,6 +171,14 @@ fn write_plan_recursive(
     let display_name = get_operator_name(plan);
 
     if let Some(reader) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
+        for part in &reader.partition {
+            for loc in part {
+                state
+                    .readers
+                    .insert(node_name.clone(), loc.partition_id.stage_id);
+            }
+        }
+    } else if let Some(reader) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
         for part in &reader.partition {
             for loc in part {
                 state
@@ -336,9 +345,16 @@ filter_expr={}",
         format!("UnresolvedShuffleExec [stage_id={}]", exec.stage_id)
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
         format!("ShuffleReader [{} partitions]", exec.partition.len())
+    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
+        format!("RemoteShuffleReader [{} partitions]", exec.partition.len())
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
         format!(
             "ShuffleWriter [{}]",
+            format_optioned_partition(exec.shuffle_output_partitioning()),
+        )
+    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleWriterExec>() {
+        format!(
+            "RemoteShuffleWriter [{}]",
             format_optioned_partition(exec.shuffle_output_partitioning()),
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {

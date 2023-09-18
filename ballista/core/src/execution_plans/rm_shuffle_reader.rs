@@ -341,7 +341,7 @@ fn fetch_partition_local_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution_plans::ShuffleWriterExec;
+    use crate::execution_plans::{ShuffleWriter, ShuffleWriterExec};
     use crate::serde::scheduler::{ExecutorMetadata, ExecutorSpecification, PartitionId};
     use crate::utils;
     use datafusion::arrow::array::{Int32Array, StringArray, UInt32Array};

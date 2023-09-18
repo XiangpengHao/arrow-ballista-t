@@ -20,7 +20,7 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec,
+    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -688,7 +688,15 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::new("scheduler_id", "job_id", "job_name", "session_id", plan, 0)
+        ExecutionGraph::new(
+            "scheduler_id",
+            "job_id",
+            "job_name",
+            "session_id",
+            plan,
+            0,
+            false,
+        )
     }
 
     // With the improvement of https://github.com/apache/arrow-datafusion/pull/4122,
@@ -713,6 +721,14 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::new("scheduler_id", "job_id", "job_name", "session_id", plan, 0)
+        ExecutionGraph::new(
+            "scheduler_id",
+            "job_id",
+            "job_name",
+            "session_id",
+            plan,
+            0,
+            false,
+        )
     }
 }

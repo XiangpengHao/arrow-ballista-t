@@ -32,7 +32,9 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::execution_plans::{ShuffleWriterExec, UnresolvedShuffleExec};
+use ballista_core::execution_plans::{
+    ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+};
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
@@ -150,10 +152,12 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        use_remote_memory: bool,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
         let output_partitions = plan.output_partitioning().partition_count();
-        let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
+        let shuffle_stages =
+            planner.plan_query_stages(job_id, plan, use_remote_memory)?;
 
         let builder = ExecutionStageBuilder::new();
         let stages = builder.build(shuffle_stages)?;

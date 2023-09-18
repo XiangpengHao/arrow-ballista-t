@@ -18,7 +18,7 @@
 use crate::config::BallistaConfig;
 use crate::error::{BallistaError, Result};
 use crate::execution_plans::{
-    DistributedQueryExec, ShuffleWriterExec, UnresolvedShuffleExec,
+    DistributedQueryExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use crate::serde::scheduler::PartitionStats;
 use async_trait::async_trait;

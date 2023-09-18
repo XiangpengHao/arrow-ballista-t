@@ -216,6 +216,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
         );
 
+        let use_remote_memory = true;
+
         let mut graph = ExecutionGraph::new(
             &self.scheduler_id,
             job_id,
@@ -223,6 +225,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             session_id,
             plan,
             queued_at,
+            use_remote_memory,
         )?;
         info!("Submitting execution graph: {:?}", graph);
 

@@ -17,7 +17,7 @@
 
 use arrow::datatypes::SchemaRef;
 use async_trait::async_trait;
-use ballista_core::execution_plans::ShuffleWriterExec;
+use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
 use ballista_core::serde::protobuf::ShuffleWritePartition;
 use ballista_core::utils;
 use datafusion::error::{DataFusionError, Result};

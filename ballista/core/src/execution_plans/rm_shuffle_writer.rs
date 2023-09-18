@@ -61,6 +61,7 @@ use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use log::{debug, info};
 
 use super::sm_writer::SharedMemoryWriter;
+use super::ShuffleWriter;
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -110,9 +111,24 @@ impl ShuffleWriteMetrics {
     }
 }
 
-impl RemoteShuffleWriterExec {
+impl ShuffleWriter for RemoteShuffleWriterExec {
+    /// Get the Job ID for this query stage
+    fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
+    /// Get the Stage ID for this query stage
+    fn stage_id(&self) -> usize {
+        self.stage_id
+    }
+
+    /// Get the true output partitioning
+    fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
+        self.shuffle_output_partitioning.as_ref()
+    }
+
     /// Create a new shuffle writer
-    pub fn try_new(
+    fn try_new(
         job_id: String,
         stage_id: usize,
         plan: Arc<dyn ExecutionPlan>,
@@ -128,22 +144,9 @@ impl RemoteShuffleWriterExec {
             metrics: ExecutionPlanMetricsSet::new(),
         })
     }
+}
 
-    /// Get the Job ID for this query stage
-    pub fn job_id(&self) -> &str {
-        &self.job_id
-    }
-
-    /// Get the Stage ID for this query stage
-    pub fn stage_id(&self) -> usize {
-        self.stage_id
-    }
-
-    /// Get the true output partitioning
-    pub fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
-        self.shuffle_output_partitioning.as_ref()
-    }
-
+impl RemoteShuffleWriterExec {
     pub fn execute_shuffle_write(
         &self,
         input_partition: usize,

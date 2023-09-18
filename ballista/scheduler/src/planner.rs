@@ -21,8 +21,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ballista_core::error::{BallistaError, Result};
+use ballista_core::execution_plans::ShuffleWriter;
 use ballista_core::{
-    execution_plans::{ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec},
+    execution_plans::{ShuffleReaderExec, UnresolvedShuffleExec},
     serde::scheduler::PartitionLocation,
 };
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -35,25 +36,27 @@ use datafusion::physical_plan::{
 
 use log::{debug, info};
 
-type PartialQueryStageResult = (Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>);
-
-pub struct DistributedPlanner {
+pub struct DistributedPlanner<SW: ShuffleWriter> {
     next_stage_id: usize,
+    phantom_writer: std::marker::PhantomData<SW>,
 }
 
-impl DistributedPlanner {
+impl<SW: ShuffleWriter> DistributedPlanner<SW> {
     pub fn new() -> Self {
-        Self { next_stage_id: 0 }
+        Self {
+            next_stage_id: 0,
+            phantom_writer: std::marker::PhantomData,
+        }
     }
 }
 
-impl Default for DistributedPlanner {
+impl<SW: ShuffleWriter> Default for DistributedPlanner<SW> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl DistributedPlanner {
+impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
     /// Returns a vector of ExecutionPlans, where the root node is a [ShuffleWriterExec].
     /// Plans that depend on the input of other plans will have leaf nodes of type [UnresolvedShuffleExec].
     /// A [ShuffleWriterExec] is created whenever the partitioning changes.
@@ -61,10 +64,11 @@ impl DistributedPlanner {
         &'a mut self,
         job_id: &'a str,
         execution_plan: Arc<dyn ExecutionPlan>,
-    ) -> Result<Vec<Arc<ShuffleWriterExec>>> {
+        use_shared_mem: bool,
+    ) -> Result<Vec<Arc<ShuffleW>>> {
         info!("planning query stages for job {}", job_id);
         let (new_plan, mut stages) =
-            self.plan_query_stages_internal(job_id, execution_plan)?;
+            self.plan_query_stages_internal(job_id, execution_plan, use_shared_mem)?;
         stages.push(create_shuffle_writer(
             job_id,
             self.next_stage_id(),
@@ -81,7 +85,8 @@ impl DistributedPlanner {
         &'a mut self,
         job_id: &'a str,
         execution_plan: Arc<dyn ExecutionPlan>,
-    ) -> Result<PartialQueryStageResult> {
+        use_remote_memory: bool,
+    ) -> Result<(Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleW>>)> {
         // recurse down and replace children
         if execution_plan.children().is_empty() {
             return Ok((execution_plan, vec![]));
@@ -90,8 +95,11 @@ impl DistributedPlanner {
         let mut stages = vec![];
         let mut children = vec![];
         for child in execution_plan.children() {
-            let (new_child, mut child_stages) =
-                self.plan_query_stages_internal(job_id, child.clone())?;
+            let (new_child, mut child_stages) = self.plan_query_stages_internal(
+                job_id,
+                child.clone(),
+                use_remote_memory,
+            )?;
             children.push(new_child);
             stages.append(&mut child_stages);
         }
@@ -100,13 +108,13 @@ impl DistributedPlanner {
             .as_any()
             .downcast_ref::<CoalescePartitionsExec>()
         {
-            let shuffle_writer = create_shuffle_writer(
+            let shuffle_writer: Arc<ShuffleW> = create_shuffle_writer(
                 job_id,
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
             )?;
-            let unresolved_shuffle = create_unresolved_shuffle(&shuffle_writer);
+            let unresolved_shuffle = create_unresolved_shuffle(shuffle_writer.as_ref());
             stages.push(shuffle_writer);
             Ok((
                 with_new_children_if_necessary(execution_plan, vec![unresolved_shuffle])?
@@ -117,13 +125,13 @@ impl DistributedPlanner {
             .as_any()
             .downcast_ref::<SortPreservingMergeExec>(
         ) {
-            let shuffle_writer = create_shuffle_writer(
+            let shuffle_writer: Arc<ShuffleW> = create_shuffle_writer(
                 job_id,
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
             )?;
-            let unresolved_shuffle = create_unresolved_shuffle(&shuffle_writer);
+            let unresolved_shuffle = create_unresolved_shuffle(shuffle_writer.as_ref());
             stages.push(shuffle_writer);
             Ok((
                 with_new_children_if_necessary(execution_plan, vec![unresolved_shuffle])?
@@ -135,13 +143,14 @@ impl DistributedPlanner {
         {
             match repart.output_partitioning() {
                 Partitioning::Hash(_, _) => {
-                    let shuffle_writer = create_shuffle_writer(
+                    let shuffle_writer: Arc<ShuffleW> = create_shuffle_writer(
                         job_id,
                         self.next_stage_id(),
                         children[0].clone(),
                         Some(repart.partitioning().to_owned()),
                     )?;
-                    let unresolved_shuffle = create_unresolved_shuffle(&shuffle_writer);
+                    let unresolved_shuffle =
+                        create_unresolved_shuffle(shuffle_writer.as_ref());
                     stages.push(shuffle_writer);
                     Ok((unresolved_shuffle, stages))
                 }
@@ -171,8 +180,8 @@ impl DistributedPlanner {
     }
 }
 
-fn create_unresolved_shuffle(
-    shuffle_writer: &ShuffleWriterExec,
+fn create_unresolved_shuffle<SW: ShuffleWriter>(
+    shuffle_writer: &SW,
 ) -> Arc<UnresolvedShuffleExec> {
     Arc::new(UnresolvedShuffleExec::new(
         shuffle_writer.stage_id(),
@@ -285,13 +294,13 @@ pub fn rollback_resolved_shuffles(
     Ok(with_new_children_if_necessary(stage, new_children)?.into())
 }
 
-fn create_shuffle_writer(
+fn create_shuffle_writer<SW: ShuffleWriter>(
     job_id: &str,
     stage_id: usize,
     plan: Arc<dyn ExecutionPlan>,
     partitioning: Option<Partitioning>,
-) -> Result<Arc<ShuffleWriterExec>> {
-    Ok(Arc::new(ShuffleWriterExec::try_new(
+) -> Result<Arc<SW>> {
+    Ok(Arc::new(SW::try_new(
         job_id.to_owned(),
         stage_id,
         plan,
@@ -305,7 +314,9 @@ mod test {
     use crate::planner::DistributedPlanner;
     use crate::test_utils::datafusion_test_context;
     use ballista_core::error::BallistaError;
-    use ballista_core::execution_plans::UnresolvedShuffleExec;
+    use ballista_core::execution_plans::{
+        ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    };
     use ballista_core::serde::BallistaCodec;
     use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
     use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
@@ -347,9 +358,9 @@ mod test {
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
         let job_uuid = Uuid::new_v4();
-        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
+        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan, false)?;
         for stage in &stages {
             println!("{}", displayable(stage.as_ref()).indent(false));
         }
@@ -455,9 +466,9 @@ order by
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
         let job_uuid = Uuid::new_v4();
-        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
+        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan, false)?;
         for stage in &stages {
             println!("{}", displayable(stage.as_ref()).indent(false));
         }
@@ -607,9 +618,9 @@ order by
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
         let job_uuid = Uuid::new_v4();
-        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
+        let stages = planner.plan_query_stages(&job_uuid.to_string(), plan, false)?;
 
         let partial_hash = stages[0].children()[0].clone();
         let partial_hash_serde = roundtrip_operator(&ctx, partial_hash.clone())?;

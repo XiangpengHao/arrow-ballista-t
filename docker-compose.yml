@@ -25,12 +25,12 @@ services:
     build:
       dockerfile: dev/docker/ballista-scheduler.Dockerfile
       context: .
-    command: "--bind-host 0.0.0.0 --external-host ballista-scheduler"
+    command: "--bind-host 0.0.0.0 --external-host ballista-scheduler --shuffle-use-remote-memory true"
     ports:
       - "80:80"
       - "50050:50050"
     environment:
-      - RUST_LOG=ballista=info
+      - RUST_LOG=ballista=debug
     volumes:
       - ./benchmarks/data:/data
       - ipc_volume:/dev/shm

@@ -17,7 +17,9 @@
 
 use arrow::datatypes::SchemaRef;
 use async_trait::async_trait;
-use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
+use ballista_core::execution_plans::{
+    RemoteShuffleWriterExec, ShuffleWriter, ShuffleWriterExec,
+};
 use ballista_core::serde::protobuf::ShuffleWritePartition;
 use ballista_core::utils;
 use datafusion::error::{DataFusionError, Result};
@@ -67,40 +69,72 @@ impl ExecutionEngine for DefaultExecutionEngine {
         work_dir: &str,
     ) -> Result<Arc<dyn QueryStageExecutor>> {
         // the query plan created by the scheduler always starts with a ShuffleWriterExec
-        let exec = if let Some(shuffle_writer) =
-            plan.as_any().downcast_ref::<ShuffleWriterExec>()
-        {
+        if let Some(shuffle_writer) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
             // recreate the shuffle writer with the correct working directory
-            ShuffleWriterExec::try_new(
+            let exec = ShuffleWriterExec::try_new(
                 job_id,
                 stage_id,
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
-            )
+            )?;
+
+            Ok(Arc::new(DefaultQueryStageExec::new(exec)))
+        } else if let Some(shuffle_writer) =
+            plan.as_any().downcast_ref::<RemoteShuffleWriterExec>()
+        {
+            // recreate the shuffle writer with the correct working directory
+            let exec = RemoteShuffleWriterExec::try_new(
+                job_id,
+                stage_id,
+                plan.children()[0].clone(),
+                work_dir.to_string(),
+                shuffle_writer.shuffle_output_partitioning().cloned(),
+            )?;
+            Ok(Arc::new(DefaultQueryStageExec::new(exec)))
         } else {
             Err(DataFusionError::Internal(
                 "Plan passed to new_query_stage_exec is not a ShuffleWriterExec"
                     .to_string(),
             ))
-        }?;
-        Ok(Arc::new(DefaultQueryStageExec::new(exec)))
+        }
     }
 }
 
 #[derive(Debug)]
-pub struct DefaultQueryStageExec {
-    shuffle_writer: ShuffleWriterExec,
+pub struct DefaultQueryStageExec<ShuffleW: ShuffleWriter> {
+    shuffle_writer: ShuffleW,
 }
 
-impl DefaultQueryStageExec {
-    pub fn new(shuffle_writer: ShuffleWriterExec) -> Self {
+impl<ShuffleW: ShuffleWriter> DefaultQueryStageExec<ShuffleW> {
+    pub fn new(shuffle_writer: ShuffleW) -> Self {
         Self { shuffle_writer }
     }
 }
 
 #[async_trait]
-impl QueryStageExecutor for DefaultQueryStageExec {
+impl QueryStageExecutor for DefaultQueryStageExec<ShuffleWriterExec> {
+    async fn execute_query_stage(
+        &self,
+        input_partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<Vec<ShuffleWritePartition>> {
+        self.shuffle_writer
+            .execute_shuffle_write(input_partition, context)
+            .await
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.shuffle_writer.schema()
+    }
+
+    fn collect_plan_metrics(&self) -> Vec<MetricsSet> {
+        utils::collect_plan_metrics(&self.shuffle_writer)
+    }
+}
+
+#[async_trait]
+impl QueryStageExecutor for DefaultQueryStageExec<RemoteShuffleWriterExec> {
     async fn execute_query_stage(
         &self,
         input_partition: usize,

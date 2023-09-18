@@ -140,6 +140,7 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
     ) -> Result<Self> {
+        info!("Creating shuffle writer for stage {}", stage_id);
         Ok(Self {
             job_id,
             stage_id,
@@ -420,7 +421,7 @@ impl DisplayAs for RemoteShuffleWriterExec {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
-                    "ShuffleWriterExec: {:?}",
+                    "RemoteShuffleWriterExec: {:?}",
                     self.shuffle_output_partitioning
                 )
             }

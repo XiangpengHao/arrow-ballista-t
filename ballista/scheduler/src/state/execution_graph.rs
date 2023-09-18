@@ -158,15 +158,13 @@ impl ExecutionGraph {
 
         let stages = if use_remote_memory {
             let mut planner = DistributedPlanner::<RemoteShuffleWriterExec>::new();
-            let shuffle_stages =
-                planner.plan_query_stages(job_id, plan, use_remote_memory)?;
+            let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
             let builder = ExecutionStageBuilder::new();
             builder.build(shuffle_stages)?
         } else {
             let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
-            let shuffle_stages =
-                planner.plan_query_stages(job_id, plan, use_remote_memory)?;
+            let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
             let builder = ExecutionStageBuilder::new();
             builder.build(shuffle_stages)?
@@ -1593,6 +1591,10 @@ impl ExecutionPlanVisitor for ExecutionStageBuilder {
         plan: &dyn ExecutionPlan,
     ) -> std::result::Result<bool, Self::Error> {
         if let Some(shuffle_write) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
+            self.current_stage_id = shuffle_write.stage_id();
+        } else if let Some(shuffle_write) =
+            plan.as_any().downcast_ref::<RemoteShuffleWriterExec>()
+        {
             self.current_stage_id = shuffle_write.stage_id();
         } else if let Some(unresolved_shuffle) =
             plan.as_any().downcast_ref::<UnresolvedShuffleExec>()

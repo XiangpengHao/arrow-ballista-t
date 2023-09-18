@@ -4,7 +4,10 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BallistaPhysicalPlanNode {
-    #[prost(oneof = "ballista_physical_plan_node::PhysicalPlanType", tags = "1, 2, 3")]
+    #[prost(
+        oneof = "ballista_physical_plan_node::PhysicalPlanType",
+        tags = "1, 2, 3, 4, 5"
+    )]
     pub physical_plan_type: ::core::option::Option<
         ballista_physical_plan_node::PhysicalPlanType,
     >,
@@ -20,6 +23,10 @@ pub mod ballista_physical_plan_node {
         ShuffleReader(super::ShuffleReaderExecNode),
         #[prost(message, tag = "3")]
         UnresolvedShuffle(super::UnresolvedShuffleExecNode),
+        #[prost(message, tag = "4")]
+        RemoteShuffleWriter(super::ShuffleWriterExecNode),
+        #[prost(message, tag = "5")]
+        RemoteShuffleReader(super::ShuffleReaderExecNode),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

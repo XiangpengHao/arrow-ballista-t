@@ -176,7 +176,7 @@ impl DisplayAs for RemoteShuffleReaderExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(f, "ShuffleReaderExec: partitions={}", self.partition.len())
+                write!(f, "RemoteShuffleReaderExec: partitions={}", self.partition.len())
             }
         }
     }

@@ -17,6 +17,7 @@
 
 //! This module contains execution plans that are needed to distribute DataFusion's execution plans into
 //! several Ballista executors.
+//!
 
 mod distributed_query;
 mod rm_shuffle_reader;

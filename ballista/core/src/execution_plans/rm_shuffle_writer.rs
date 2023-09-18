@@ -29,7 +29,6 @@ use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use std::any::Any;
 use std::future::Future;
 use std::iter::Iterator;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -44,7 +43,6 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::{DataFusionError, Result};
-use datafusion::physical_plan::common::IPCWriter;
 use datafusion::physical_plan::memory::MemoryStream;
 use datafusion::physical_plan::metrics::{
     self, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
@@ -61,6 +59,8 @@ use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use log::{debug, info};
+
+use super::sm_writer::SharedMemoryWriter;
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -149,9 +149,9 @@ impl RemoteShuffleWriterExec {
         input_partition: usize,
         context: Arc<TaskContext>,
     ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
-        let mut path = PathBuf::from(&self.work_dir);
-        path.push(&self.job_id);
-        path.push(&format!("{}", self.stage_id));
+        let mut identifier = String::new();
+        identifier.push_str(&self.job_id);
+        identifier.push_str(&format!("-{}", self.stage_id));
 
         let write_metrics = ShuffleWriteMetrics::new(input_partition, &self.metrics);
         let output_partitioning = self.shuffle_output_partitioning.clone();
@@ -164,16 +164,15 @@ impl RemoteShuffleWriterExec {
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
-                    path.push(&format!("{input_partition}"));
-                    std::fs::create_dir_all(&path)?;
-                    path.push("data.arrow");
-                    let path = path.to_str().unwrap();
-                    debug!("Writing results to {}", path);
+                    identifier.push_str(&format!("{input_partition}"));
+                    std::fs::create_dir_all(&identifier)?;
+                    identifier.push_str("data.arrow");
+                    debug!("Writing results to {}", &identifier);
 
                     // stream results to disk
                     let stats = utils::write_stream_to_disk(
                         &mut stream,
-                        path,
+                        &identifier,
                         &write_metrics.write_time,
                     )
                     .await
@@ -196,7 +195,7 @@ impl RemoteShuffleWriterExec {
 
                     Ok(vec![ShuffleWritePartition {
                         partition_id: input_partition as u64,
-                        path: path.to_owned(),
+                        path: identifier,
                         num_batches: stats.num_batches.unwrap_or(0),
                         num_rows: stats.num_rows.unwrap_or(0),
                         num_bytes: stats.num_bytes.unwrap_or(0),
@@ -206,7 +205,7 @@ impl RemoteShuffleWriterExec {
                 Some(Partitioning::Hash(exprs, num_output_partitions)) => {
                     // we won't necessary produce output for every possible partition, so we
                     // create writers on demand
-                    let mut writers: Vec<Option<IPCWriter>> = vec![];
+                    let mut writers: Vec<Option<SharedMemoryWriter>> = vec![];
                     for _ in 0..num_output_partitions {
                         writers.push(None);
                     }
@@ -231,17 +230,17 @@ impl RemoteShuffleWriterExec {
                                         w.write(&output_batch)?;
                                     }
                                     None => {
-                                        let mut path = path.clone();
-                                        path.push(&format!("{output_partition}"));
-                                        std::fs::create_dir_all(&path)?;
+                                        let mut idt = identifier.clone();
+                                        idt.push_str(&format!("-{output_partition}"));
+                                        std::fs::create_dir_all(&idt)?;
 
-                                        path.push(format!(
-                                            "data-{input_partition}.arrow"
+                                        idt.push_str(&format!(
+                                            "-data-{input_partition}.arrow"
                                         ));
-                                        debug!("Writing results to {:?}", path);
+                                        debug!("Writing results to {:?}", idt);
 
-                                        let mut writer = IPCWriter::new(
-                                            &path,
+                                        let mut writer = SharedMemoryWriter::new(
+                                            idt,
                                             stream.schema().as_ref(),
                                         )?;
 
@@ -265,7 +264,7 @@ impl RemoteShuffleWriterExec {
                                 debug!(
                                     "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
                                     i,
-                                    w.path(),
+                                    w.identifier(),
                                     w.num_batches,
                                     w.num_rows,
                                     w.num_bytes
@@ -273,7 +272,7 @@ impl RemoteShuffleWriterExec {
 
                                 part_locs.push(ShuffleWritePartition {
                                     partition_id: i as u64,
-                                    path: w.path().to_string_lossy().to_string(),
+                                    path: w.identifier().to_owned(),
                                     num_batches: w.num_batches,
                                     num_rows: w.num_rows,
                                     num_bytes: w.num_bytes,

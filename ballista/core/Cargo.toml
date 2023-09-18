@@ -53,6 +53,7 @@ datafusion-objectstore-hdfs = { version = "0.1.4", default-features = false, opt
 datafusion-proto = { workspace = true }
 futures = { workspace = true }
 itertools = "0.10"
+libc = "0.2.148"
 log = "0.4"
 object_store = { workspace = true }
 once_cell = "1.18.0"

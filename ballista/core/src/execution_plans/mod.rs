@@ -24,6 +24,7 @@ mod rm_shuffle_writer;
 mod shuffle_reader;
 mod shuffle_writer;
 mod unresolved_shuffle;
+mod sm_writer;
 
 pub use distributed_query::DistributedQueryExec;
 pub use shuffle_reader::ShuffleReaderExec;

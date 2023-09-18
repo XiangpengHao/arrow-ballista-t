@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::execution_plans::ShuffleWriter;
+use ballista_core::execution_plans::{RemoteShuffleReaderExec, ShuffleWriter};
 use ballista_core::{
     execution_plans::{ShuffleReaderExec, UnresolvedShuffleExec},
     serde::scheduler::PartitionLocation,
@@ -191,6 +191,7 @@ fn create_unresolved_shuffle<SW: ShuffleWriter>(
             .shuffle_output_partitioning()
             .map(|p| p.partition_count())
             .unwrap_or_else(|| shuffle_writer.output_partitioning().partition_count()),
+        SW::use_remote_memory(),
     ))
 }
 
@@ -254,11 +255,19 @@ pub fn remove_unresolved_shuffles(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-            new_children.push(Arc::new(ShuffleReaderExec::try_new(
-                unresolved_shuffle.stage_id,
-                relevant_locations,
-                unresolved_shuffle.schema().clone(),
-            )?))
+            if unresolved_shuffle.use_remote_memory {
+                new_children.push(Arc::new(RemoteShuffleReaderExec::try_new(
+                    unresolved_shuffle.stage_id,
+                    relevant_locations,
+                    unresolved_shuffle.schema().clone(),
+                )?))
+            } else {
+                new_children.push(Arc::new(ShuffleReaderExec::try_new(
+                    unresolved_shuffle.stage_id,
+                    relevant_locations,
+                    unresolved_shuffle.schema().clone(),
+                )?))
+            }
         } else {
             new_children.push(remove_unresolved_shuffles(child, partition_locations)?);
         }
@@ -285,6 +294,23 @@ pub fn rollback_resolved_shuffles(
                 shuffle_reader.schema(),
                 input_partition_count,
                 output_partition_count,
+                false,
+            ));
+            new_children.push(unresolved_shuffle);
+        } else if let Some(shuffle_reader) =
+            child.as_any().downcast_ref::<RemoteShuffleReaderExec>()
+        {
+            let partition_locations = &shuffle_reader.partition;
+            let output_partition_count = partition_locations.len();
+            let input_partition_count = partition_locations[0].len();
+            let stage_id = partition_locations[0][0].partition_id.stage_id;
+
+            let unresolved_shuffle = Arc::new(UnresolvedShuffleExec::new(
+                stage_id,
+                shuffle_reader.schema(),
+                input_partition_count,
+                output_partition_count,
+                true,
             ));
             new_children.push(unresolved_shuffle);
         } else {

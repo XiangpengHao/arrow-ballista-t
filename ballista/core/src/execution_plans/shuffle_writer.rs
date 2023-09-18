@@ -119,6 +119,10 @@ impl ShuffleWriter for ShuffleWriterExec {
         self.stage_id
     }
 
+    fn use_remote_memory() -> bool {
+        false
+    }
+
     /// Get the true output partitioning
     fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
         self.shuffle_output_partitioning.as_ref()
@@ -175,6 +179,7 @@ impl ShuffleWriterExec {
                         &mut stream,
                         path,
                         &write_metrics.write_time,
+                        false,
                     )
                     .await
                     .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;

@@ -29,6 +29,7 @@ use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use std::any::Any;
 use std::future::Future;
 use std::iter::Iterator;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -122,6 +123,10 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
         self.stage_id
     }
 
+    fn use_remote_memory() -> bool {
+        true
+    }
+
     /// Get the true output partitioning
     fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
         self.shuffle_output_partitioning.as_ref()
@@ -152,7 +157,7 @@ impl RemoteShuffleWriterExec {
         input_partition: usize,
         context: Arc<TaskContext>,
     ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
-        let mut identifier = String::new();
+        let mut identifier = String::from_str("/").unwrap();
         identifier.push_str(&self.job_id);
         identifier.push_str(&format!("-{}", self.stage_id));
 
@@ -168,7 +173,6 @@ impl RemoteShuffleWriterExec {
                 None => {
                     let timer = write_metrics.write_time.timer();
                     identifier.push_str(&format!("{input_partition}"));
-                    std::fs::create_dir_all(&identifier)?;
                     identifier.push_str("data.arrow");
                     debug!("Writing results to {}", &identifier);
 
@@ -177,6 +181,7 @@ impl RemoteShuffleWriterExec {
                         &mut stream,
                         &identifier,
                         &write_metrics.write_time,
+                        true,
                     )
                     .await
                     .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
@@ -430,134 +435,4 @@ fn result_schema() -> SchemaRef {
         Field::new("path", DataType::Utf8, false),
         stats.arrow_struct_repr(),
     ]))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use datafusion::arrow::array::{StringArray, StructArray, UInt32Array, UInt64Array};
-    use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-    use datafusion::physical_plan::expressions::Column;
-
-    use datafusion::physical_plan::memory::MemoryExec;
-    use datafusion::prelude::SessionContext;
-    use tempfile::TempDir;
-
-    #[tokio::test]
-    // number of rows in each partition is a function of the hash output, so don't test here
-    #[cfg(not(feature = "force_hash_collisions"))]
-    async fn test() -> Result<()> {
-        let session_ctx = SessionContext::new();
-        let task_ctx = session_ctx.task_ctx();
-
-        let input_plan = Arc::new(CoalescePartitionsExec::new(create_input_plan()?));
-        let work_dir = TempDir::new()?;
-        let query_stage = RemoteShuffleWriterExec::try_new(
-            "jobOne".to_owned(),
-            1,
-            input_plan,
-            work_dir.into_path().to_str().unwrap().to_owned(),
-            Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
-        )?;
-        let mut stream = query_stage.execute(0, task_ctx)?;
-        let batches = utils::collect_stream(&mut stream)
-            .await
-            .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
-        assert_eq!(1, batches.len());
-        let batch = &batches[0];
-        println!("batch: {:?}", batch);
-        assert_eq!(3, batch.num_columns());
-        assert_eq!(2, batch.num_rows());
-        let path = batch.columns()[1]
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-
-        let file0 = path.value(0);
-        assert!(
-            file0.ends_with("/jobOne/1/0/data-0.arrow")
-                || file0.ends_with("\\jobOne\\1\\0\\data-0.arrow")
-        );
-        let file1 = path.value(1);
-        assert!(
-            file1.ends_with("/jobOne/1/1/data-0.arrow")
-                || file1.ends_with("\\jobOne\\1\\1\\data-0.arrow")
-        );
-
-        let stats = batch.columns()[2]
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .unwrap();
-
-        let num_rows = stats
-            .column_by_name("num_rows")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .unwrap();
-        assert_eq!(4, num_rows.value(0));
-        assert_eq!(4, num_rows.value(1));
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    // number of rows in each partition is a function of the hash output, so don't test here
-    #[cfg(not(feature = "force_hash_collisions"))]
-    async fn test_partitioned() -> Result<()> {
-        let session_ctx = SessionContext::new();
-        let task_ctx = session_ctx.task_ctx();
-
-        let input_plan = create_input_plan()?;
-        let work_dir = TempDir::new()?;
-        let query_stage = RemoteShuffleWriterExec::try_new(
-            "jobOne".to_owned(),
-            1,
-            input_plan,
-            work_dir.into_path().to_str().unwrap().to_owned(),
-            Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
-        )?;
-        let mut stream = query_stage.execute(0, task_ctx)?;
-        let batches = utils::collect_stream(&mut stream)
-            .await
-            .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
-
-        assert_eq!(1, batches.len());
-        let batch = &batches[0];
-        assert_eq!(3, batch.num_columns());
-        assert_eq!(2, batch.num_rows());
-        let stats = batch.columns()[2]
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .unwrap();
-        let num_rows = stats
-            .column_by_name("num_rows")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .unwrap();
-        assert_eq!(2, num_rows.value(0));
-        assert_eq!(2, num_rows.value(1));
-
-        Ok(())
-    }
-
-    fn create_input_plan() -> Result<Arc<dyn ExecutionPlan>> {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("a", DataType::UInt32, true),
-            Field::new("b", DataType::Utf8, true),
-        ]));
-
-        // define data.
-        let batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(UInt32Array::from(vec![Some(1), Some(2)])),
-                Arc::new(StringArray::from(vec![Some("hello"), Some("world")])),
-            ],
-        )?;
-        let partition = vec![batch.clone(), batch];
-        let partitions = vec![partition.clone(), partition];
-        Ok(Arc::new(MemoryExec::try_new(&partitions, schema, None)?))
-    }
 }

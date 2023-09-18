@@ -51,6 +51,7 @@ message UnresolvedShuffleExecNode {
   datafusion.Schema schema = 2;
   uint32 input_partition_count = 3;
   uint32 output_partition_count = 4;
+  bool use_remote_memory = 5;
 }
 
 message ShuffleReaderExecNode {

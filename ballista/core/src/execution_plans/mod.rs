@@ -42,6 +42,8 @@ pub trait ShuffleWriter: Sized + ExecutionPlan {
 
     fn stage_id(&self) -> usize;
 
+    fn use_remote_memory() -> bool;
+
     /// Get the true output partitioning
     fn shuffle_output_partitioning(&self) -> Option<&Partitioning>;
 

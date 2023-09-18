@@ -56,8 +56,10 @@ use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "azure")]
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::ObjectStore;
+use std::ffi::CString;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
+use std::os::fd::FromRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -177,11 +179,28 @@ pub async fn write_stream_to_disk(
     stream: &mut Pin<Box<dyn RecordBatchStream + Send>>,
     path: &str,
     disk_write_metric: &metrics::Time,
+    use_remote_memory: bool,
 ) -> Result<PartitionStats> {
-    let file = File::create(path).map_err(|e| {
-        error!("Failed to create partition file at {}: {:?}", path, e);
-        BallistaError::IoError(e)
-    })?;
+    let file = if use_remote_memory {
+        let shm_name = CString::new(path).unwrap();
+        let raw_fd = unsafe {
+            libc::shm_open(
+                shm_name.as_ptr(),
+                libc::O_CREAT | libc::O_RDWR,
+                libc::S_IRUSR | libc::S_IWUSR,
+            )
+        };
+        if raw_fd == -1 {
+            panic!("Failed to create shared memory");
+        }
+
+        unsafe { File::from_raw_fd(raw_fd) }
+    } else {
+        File::create(path).map_err(|e| {
+            error!("Failed to create partition file at {}: {:?}", path, e);
+            BallistaError::IoError(e)
+        })?
+    };
 
     let mut num_rows = 0;
     let mut num_batches = 0;

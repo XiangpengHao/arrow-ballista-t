@@ -33,7 +33,7 @@ use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::execution_plans::{
-    ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleWriterExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
@@ -154,16 +154,25 @@ impl ExecutionGraph {
         queued_at: u64,
         use_remote_memory: bool,
     ) -> Result<Self> {
-        let mut planner = DistributedPlanner::new();
         let output_partitions = plan.output_partitioning().partition_count();
-        let shuffle_stages =
-            planner.plan_query_stages(job_id, plan, use_remote_memory)?;
 
-        let builder = ExecutionStageBuilder::new();
-        let stages = builder.build(shuffle_stages)?;
+        let stages = if use_remote_memory {
+            let mut planner = DistributedPlanner::<RemoteShuffleWriterExec>::new();
+            let shuffle_stages =
+                planner.plan_query_stages(job_id, plan, use_remote_memory)?;
+
+            let builder = ExecutionStageBuilder::new();
+            builder.build(shuffle_stages)?
+        } else {
+            let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+            let shuffle_stages =
+                planner.plan_query_stages(job_id, plan, use_remote_memory)?;
+
+            let builder = ExecutionStageBuilder::new();
+            builder.build(shuffle_stages)?
+        };
 
         let started_at = timestamp_millis();
-
         Ok(Self {
             scheduler_id: Some(scheduler_id.to_string()),
             job_id: job_id.to_string(),
@@ -1532,9 +1541,9 @@ impl ExecutionStageBuilder {
         }
     }
 
-    pub fn build(
+    pub fn build<ShuffleW: ShuffleWriter + 'static>(
         mut self,
-        stages: Vec<Arc<ShuffleWriterExec>>,
+        stages: Vec<Arc<ShuffleW>>,
     ) -> Result<HashMap<usize, ExecutionStage>> {
         let mut execution_stages: HashMap<usize, ExecutionStage> = HashMap::new();
         // First, build the dependency graph

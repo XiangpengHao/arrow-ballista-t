@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::{convert::TryInto, io::Cursor};
 
 use crate::execution_plans::{
-    ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec, ShuffleWriter,
+    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use crate::serde::protobuf::ballista_physical_plan_node::PhysicalPlanType;
 use crate::serde::scheduler::PartitionLocation;
@@ -188,6 +188,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         as usize,
                     output_partition_count: unresolved_shuffle.output_partition_count
                         as usize,
+                    use_remote_memory: unresolved_shuffle.use_remote_memory,
                 }))
             }
         }
@@ -278,6 +279,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         schema: Some(exec.schema().as_ref().try_into()?),
                         input_partition_count: exec.input_partition_count as u32,
                         output_partition_count: exec.output_partition_count as u32,
+                        use_remote_memory: exec.use_remote_memory,
                     },
                 )),
             };

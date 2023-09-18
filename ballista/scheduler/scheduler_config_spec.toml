@@ -137,3 +137,9 @@ name = "expire_dead_executor_interval_seconds"
 type = "u64"
 doc = "The interval to check expired or dead executors"
 default = "15"
+
+[[param]]
+name = "shuffle_use_remote_memory"
+type = "bool"
+doc = "whether to use remote memory for shuffle operations"
+default = "false"

@@ -49,6 +49,8 @@ pub struct UnresolvedShuffleExecNode {
     pub input_partition_count: u32,
     #[prost(uint32, tag = "4")]
     pub output_partition_count: u32,
+    #[prost(bool, tag = "5")]
+    pub use_remote_memory: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

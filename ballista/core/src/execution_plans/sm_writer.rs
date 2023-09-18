@@ -33,7 +33,7 @@ pub struct SharedMemoryWriter {
 
 impl SharedMemoryWriter {
     pub fn new(identifier: String, schema: &Schema) -> Result<Self> {
-        let shm_name = CString::new("/ballista-shm-".to_owned() + &identifier).unwrap();
+        let shm_name = CString::new(identifier.clone()).unwrap();
         let raw_fd = unsafe {
             libc::shm_open(
                 shm_name.as_ptr(),

@@ -44,6 +44,8 @@ pub struct UnresolvedShuffleExec {
 
     // The partition count this node will have once it is replaced with a ShuffleReaderExec
     pub output_partition_count: usize,
+
+    pub use_remote_memory: bool,
 }
 
 impl UnresolvedShuffleExec {
@@ -53,12 +55,14 @@ impl UnresolvedShuffleExec {
         schema: SchemaRef,
         input_partition_count: usize,
         output_partition_count: usize,
+        use_remote_memory: bool,
     ) -> Self {
         Self {
             stage_id,
             schema,
             input_partition_count,
             output_partition_count,
+            use_remote_memory
         }
     }
 }

@@ -176,7 +176,11 @@ impl DisplayAs for RemoteShuffleReaderExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(f, "RemoteShuffleReaderExec: partitions={}", self.partition.len())
+                write!(
+                    f,
+                    "RemoteShuffleReaderExec: partitions={}",
+                    self.partition.len()
+                )
             }
         }
     }
@@ -330,6 +334,13 @@ fn fetch_partition_local_inner(
             libc::S_IRUSR | libc::S_IWUSR,
         )
     };
+
+    if raw_fd < 0 {
+        return Err(BallistaError::General(format!(
+            "Failed to open shared memory at {path}",
+            path = path
+        )));
+    }
 
     let file = unsafe { File::from_raw_fd(raw_fd) };
 

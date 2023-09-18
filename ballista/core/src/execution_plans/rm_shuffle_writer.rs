@@ -158,7 +158,7 @@ impl RemoteShuffleWriterExec {
         input_partition: usize,
         context: Arc<TaskContext>,
     ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
-        let mut identifier = String::from_str("/").unwrap();
+        let mut identifier = String::from_str("/shm-").unwrap();
         identifier.push_str(&self.job_id);
         identifier.push_str(&format!("-{}", self.stage_id));
 

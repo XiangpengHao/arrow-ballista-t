@@ -18,7 +18,9 @@
 //! Implementation of the Apache Arrow Flight protocol that wraps an executor.
 
 use std::convert::TryFrom;
+use std::ffi::CString;
 use std::fs::File;
+use std::os::fd::FromRawFd;
 use std::pin::Pin;
 
 use arrow_flight::SchemaAsIpc;
@@ -91,13 +93,31 @@ impl FlightService for BallistaFlightService {
         match &action {
             BallistaAction::FetchPartition { path, .. } => {
                 debug!("FetchPartition reading {}", path);
-                let file = File::open(path)
-                    .map_err(|e| {
-                        BallistaError::General(format!(
-                            "Failed to open partition file at {path}: {e:?}"
-                        ))
-                    })
-                    .map_err(|e| from_ballista_err(&e))?;
+                let file = if path.starts_with("/shm-") {
+                    let shm_name = CString::new(path.to_owned()).unwrap();
+
+                    let raw_fd = unsafe {
+                        libc::shm_open(
+                            shm_name.as_ptr(),
+                            libc::O_RDONLY,
+                            libc::S_IRUSR | libc::S_IWUSR,
+                        )
+                    };
+
+                    if raw_fd < 0 {
+                        panic!("Failed to open shared memory {}", path);
+                    }
+
+                    unsafe { File::from_raw_fd(raw_fd) }
+                } else {
+                    File::open(path)
+                        .map_err(|e| {
+                            BallistaError::General(format!(
+                                "Failed to open partition file at {path}: {e:?}"
+                            ))
+                        })
+                        .map_err(|e| from_ballista_err(&e))?
+                };
                 let reader =
                     FileReader::try_new(file, None).map_err(|e| from_arrow_err(&e))?;
 

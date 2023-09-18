@@ -41,7 +41,7 @@ impl SharedMemoryWriter {
                 libc::S_IRUSR | libc::S_IWUSR,
             )
         };
-        if raw_fd == -1 {
+        if raw_fd < 0 {
             panic!("Failed to create shared memory");
         }
 

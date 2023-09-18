@@ -53,6 +53,8 @@ pub struct SchedulerConfig {
     pub executor_timeout_seconds: u64,
     /// The interval to check expired or dead executors
     pub expire_dead_executor_interval_seconds: u64,
+
+    pub shuffle_use_remote_memory: bool,
 }
 
 impl Default for SchedulerConfig {
@@ -71,6 +73,7 @@ impl Default for SchedulerConfig {
             executor_timeout_seconds: 180,
             scheduler_event_expected_processing_duration: 0,
             expire_dead_executor_interval_seconds: 15,
+            shuffle_use_remote_memory: false,
         }
     }
 }

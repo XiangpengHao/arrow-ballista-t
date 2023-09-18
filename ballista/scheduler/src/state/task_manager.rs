@@ -210,13 +210,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        use_remote_memory: bool,
     ) -> Result<()> {
         info!(
             "Converting execution plan into execution graph: {}",
             DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
         );
-
-        let use_remote_memory = true;
 
         let mut graph = ExecutionGraph::new(
             &self.scheduler_id,

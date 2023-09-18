@@ -415,6 +415,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             &session_ctx.session_id(),
             plan,
             queued_at,
+            self.config.shuffle_use_remote_memory
         )?;
 
         let elapsed = start.elapsed();

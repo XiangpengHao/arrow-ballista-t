@@ -38,6 +38,8 @@ pub const BALLISTA_WITH_INFORMATION_SCHEMA: &str = "ballista.with_information_sc
 /// Indicate whether to enable to data cache for a task
 pub const BALLISTA_DATA_CACHE_ENABLED: &str = "ballista.data_cache.enabled";
 
+pub const BALLISTA_SHUFFLE_USE_REMOTE_MEMORY: &str = "ballista.shuffle_use_remote_memory";
+
 pub type ParseResult<T> = result::Result<T, String>;
 
 /// Configuration option meta-data

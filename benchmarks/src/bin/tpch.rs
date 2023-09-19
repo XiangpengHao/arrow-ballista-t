@@ -20,7 +20,7 @@
 use ballista::context::BallistaContext;
 use ballista::prelude::{
     BallistaConfig, BALLISTA_DEFAULT_BATCH_SIZE, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
-    BALLISTA_JOB_NAME,
+    BALLISTA_JOB_NAME, BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
 };
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::SchemaBuilder;
@@ -120,6 +120,9 @@ struct BallistaBenchmarkOpt {
     /// Path to output directory where JSON summary file should be written to
     #[structopt(parse(from_os_str), short = "o", long = "output")]
     output_path: Option<PathBuf>,
+
+    #[structopt(long = "shuffle-use-remote-memory")]
+    shuffle_use_remote_memory: bool,
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -364,6 +367,10 @@ async fn benchmark_ballista(opt: BallistaBenchmarkOpt) -> Result<()> {
             &format!("Query derived from TPC-H q{}", opt.query),
         )
         .set(BALLISTA_DEFAULT_BATCH_SIZE, &format!("{}", opt.batch_size))
+        .set(
+            BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
+            &format!("{}", opt.shuffle_use_remote_memory),
+        )
         .build()
         .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
 

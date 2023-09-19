@@ -91,6 +91,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 session_ctx,
                 plan,
                 queued_at,
+                use_remote_memory,
             } => {
                 info!("Job {} queued with name {:?}", job_id, job_name);
 
@@ -106,7 +107,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 let state = self.state.clone();
                 tokio::spawn(async move {
                     let event = if let Err(e) = state
-                        .submit_job(&job_id, &job_name, session_ctx, &plan, queued_at)
+                        .submit_job(
+                            &job_id,
+                            &job_name,
+                            session_ctx,
+                            &plan,
+                            queued_at,
+                            use_remote_memory,
+                        )
                         .await
                     {
                         let fail_message = format!("Error planning job {job_id}: {e:?}");

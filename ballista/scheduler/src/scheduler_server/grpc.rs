@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
+use ballista_core::config::{
+    BallistaConfig, BALLISTA_JOB_NAME, BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
+};
 use std::convert::TryInto;
 
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
@@ -319,14 +321,29 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             .cloned()
             .unwrap_or_default();
 
-        self.submit_job(&job_id, &job_name, session_ctx, &plan, sql)
-            .await
-            .map_err(|e| {
-                let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");
-                error!("{}", msg);
+        let use_remote_memory = config
+            .settings()
+            .get(BALLISTA_SHUFFLE_USE_REMOTE_MEMORY)
+            .cloned()
+            .unwrap_or_default()
+            .parse::<bool>()
+            .unwrap();
 
-                Status::internal(msg)
-            })?;
+        self.submit_job(
+            &job_id,
+            &job_name,
+            session_ctx,
+            &plan,
+            sql,
+            use_remote_memory,
+        )
+        .await
+        .map_err(|e| {
+            let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");
+            error!("{}", msg);
+
+            Status::internal(msg)
+        })?;
 
         Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
     }

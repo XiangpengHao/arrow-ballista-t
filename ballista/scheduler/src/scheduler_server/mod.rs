@@ -160,6 +160,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
         sql: String,
+        use_remote_memory: bool,
     ) -> Result<()> {
         self.state.task_manager.register_sql(job_id, sql);
         self.query_stage_event_loop
@@ -170,6 +171,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 session_ctx: ctx,
                 plan: Box::new(plan.clone()),
                 queued_at: timestamp_millis(),
+                use_remote_memory,
             })
             .await
     }

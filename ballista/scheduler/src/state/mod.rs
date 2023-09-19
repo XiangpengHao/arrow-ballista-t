@@ -354,6 +354,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         session_ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
         queued_at: u64,
+        use_remote_memory: bool,
     ) -> Result<()> {
         let start = Instant::now();
 
@@ -415,7 +416,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             &session_ctx.session_id(),
             plan,
             queued_at,
-            self.config.shuffle_use_remote_memory
+            use_remote_memory,
         )?;
 
         let elapsed = start.elapsed();

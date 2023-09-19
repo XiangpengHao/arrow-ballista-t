@@ -32,6 +32,7 @@ pub enum QueryStageSchedulerEvent {
         session_ctx: Arc<SessionContext>,
         plan: Box<LogicalPlan>,
         queued_at: u64,
+        use_remote_memory: bool,
     },
     JobSubmitted {
         job_id: String,

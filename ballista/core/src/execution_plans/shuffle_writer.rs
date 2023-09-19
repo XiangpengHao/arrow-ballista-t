@@ -287,6 +287,7 @@ impl ShuffleWriterExec {
                             None => {}
                         }
                     }
+                    log::warn!("shuffle write metrics: {:?}", write_metrics);
                     Ok(part_locs)
                 }
 
@@ -466,9 +467,10 @@ mod tests {
         let batches = utils::collect_stream(&mut stream)
             .await
             .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
+
+        println!("{}", query_stage.metrics().unwrap());
         assert_eq!(1, batches.len());
         let batch = &batches[0];
-        println!("batch: {:?}", batch);
         assert_eq!(3, batch.num_columns());
         assert_eq!(2, batch.num_rows());
         let path = batch.columns()[1]

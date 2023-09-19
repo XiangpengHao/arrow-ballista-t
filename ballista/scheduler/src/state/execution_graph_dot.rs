@@ -348,14 +348,19 @@ filter_expr={}",
     } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
         format!("RemoteShuffleReader [{} partitions]", exec.partition.len())
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
+        log::warn!("shuffle dot writer metrics: {}", exec.metrics().unwrap());
         format!(
-            "ShuffleWriter [{}]",
+            "ShuffleWriter [{}]
+            {}",
             format_optioned_partition(exec.shuffle_output_partitioning()),
+            exec.metrics().unwrap(),
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleWriterExec>() {
         format!(
-            "RemoteShuffleWriter [{}]",
+            "RemoteShuffleWriter [{}]
+            {:?}",
             format_optioned_partition(exec.shuffle_output_partitioning()),
+            exec.metrics().unwrap(),
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()

@@ -241,7 +241,6 @@ impl RemoteShuffleWriterExec {
                                     None => {
                                         let mut idt = identifier.clone();
                                         idt.push_str(&format!("-{output_partition}"));
-                                        std::fs::create_dir_all(&idt)?;
 
                                         idt.push_str(&format!(
                                             "-data-{input_partition}.arrow"
@@ -290,6 +289,7 @@ impl RemoteShuffleWriterExec {
                             None => {}
                         }
                     }
+                    log::warn!("shuffle write metrics: {:?}", write_metrics);
                     Ok(part_locs)
                 }
 

@@ -35,6 +35,7 @@ services:
       - ./benchmarks/data:/data
       - ipc_volume:/dev/shm
     ipc: "shareable"
+    shm_size: '2gb'
     healthcheck:
       test: ["CMD", "nc", "-z", "ballista-scheduler", "50050"]
       interval: 5s
@@ -45,7 +46,7 @@ services:
     build:
       dockerfile: dev/docker/ballista-executor.Dockerfile
       context: .
-    command: "--bind-host 0.0.0.0 --scheduler-host ballista-scheduler --scheduler-connect-timeout-seconds 15"
+    command: "--bind-host 0.0.0.0 --scheduler-host ballista-scheduler --scheduler-connect-timeout-seconds 15 --work-dir /tpch-data"
     deploy:
       replicas: 2
     restart: always
@@ -55,6 +56,7 @@ services:
       - ./benchmarks/data:/data
       - ipc_volume:/dev/shm
     ipc: "shareable"
+    shm_size: 2gb
     depends_on:
       - ballista-scheduler
     healthcheck:

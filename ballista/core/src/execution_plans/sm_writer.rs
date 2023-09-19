@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs::File, io::Write, os::fd::FromRawFd};
+use std::{ffi::CString, io::Write};
 
 use datafusion::arrow::{
     datatypes::Schema, error::Result, ipc::writer::FileWriter, record_batch::RecordBatch,
@@ -23,12 +23,39 @@ impl Write for MemoryWriter {
     }
 }
 
+pub struct NoFlushFile {
+    raw_fd: i32,
+}
+
+impl NoFlushFile {
+    pub fn new(raw_fd: i32) -> Self {
+        Self { raw_fd }
+    }
+}
+
+impl Write for NoFlushFile {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let len = unsafe {
+            libc::write(self.raw_fd, buf.as_ptr() as *const libc::c_void, buf.len())
+        };
+        if len < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            Ok(len as usize)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 pub struct SharedMemoryWriter {
     pub identifier: String,
     pub num_batches: u64,
     pub num_rows: u64,
     pub num_bytes: u64,
-    pub writer: FileWriter<File>,
+    pub writer: FileWriter<NoFlushFile>,
 }
 
 impl SharedMemoryWriter {
@@ -45,7 +72,7 @@ impl SharedMemoryWriter {
             panic!("Failed to create shared memory");
         }
 
-        let file = unsafe { File::from_raw_fd(raw_fd) };
+        let file = NoFlushFile::new(raw_fd);
 
         Ok(Self {
             identifier,

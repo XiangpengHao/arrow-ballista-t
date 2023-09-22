@@ -304,7 +304,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     /// Update given task statuses in the respective job and return a tuple containing:
     /// 1. A list of QueryStageSchedulerEvent to publish.
-    /// 2. A list of reservations that can now be offered.
     pub(crate) async fn update_task_statuses(
         &self,
         executor: &ExecutorMetadata,
@@ -323,7 +322,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let num_tasks = statuses.len();
             debug!("Updating {} tasks in job {}", num_tasks, job_id);
 
-            // let graph = self.get_active_execution_graph(&job_id).await;
             let job_events = if let Some(cached) =
                 self.get_active_execution_graph(&job_id)
             {

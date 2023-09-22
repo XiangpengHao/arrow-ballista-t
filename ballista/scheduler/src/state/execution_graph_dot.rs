@@ -35,6 +35,7 @@ use datafusion::physical_plan::joins::CrossJoinExec;
 use datafusion::physical_plan::joins::HashJoinExec;
 use datafusion::physical_plan::limit::{GlobalLimitExec, LocalLimitExec};
 use datafusion::physical_plan::memory::MemoryExec;
+use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
@@ -74,7 +75,9 @@ impl<'a> ExecutionGraphDot<'a> {
             writeln!(&mut dot, "node [fontname=\"{}\"];", DEFAULT_FONT)?;
             writeln!(&mut dot, "edge [fontname=\"{}\"];", DEFAULT_FONT)?;
             let stage_name = format!("stage_{stage_id}");
-            write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?;
+
+            StagePlanWriter::new(&mut dot, &stage_name, &vec![])
+                .write(stage.plan(), 0)?;
             writeln!(&mut dot, "}}")?;
             Ok(dot)
         } else {
@@ -102,12 +105,13 @@ impl<'a> ExecutionGraphDot<'a> {
         for id in &stage_ids {
             let stage = stages.get(id).unwrap(); // safe unwrap
 
-            let elapsed_time = match stage {
+            let dummy_metrics = vec![];
+            let (elapsed_time, metrics) = match stage {
                 ExecutionStage::Successful(s) => {
-                    let s = get_elapsed_compute_nanos(&s.stage_metrics);
-                    format!("({})", s)
+                    let e = get_elapsed_compute_nanos(&s.stage_metrics);
+                    (format!("({})", e), &s.stage_metrics)
                 }
-                _ => "".to_string(),
+                _ => ("".to_string(), &dummy_metrics),
             };
 
             let stage_name = format!("stage_{id}");
@@ -117,9 +121,12 @@ impl<'a> ExecutionGraphDot<'a> {
                 "\t\tlabel = \"Stage {} [{}{}]\";",
                 id,
                 stage.variant_name(),
-                elapsed_time
+                elapsed_time,
             )?;
-            stage_meta.push(write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?);
+
+            let mut stage_plan_writer =
+                StagePlanWriter::new(&mut dot, &stage_name, metrics);
+            stage_meta.push(stage_plan_writer.write(stage.plan(), 0)?);
             cluster += 1;
             writeln!(&mut dot, "\t}}")?; // end of subgraph
         }
@@ -145,80 +152,107 @@ impl<'a> ExecutionGraphDot<'a> {
     }
 }
 
-/// Write the query tree for a single stage and build metadata needed to later draw
-/// the links between the stages
-fn write_stage_plan(
-    f: &mut String,
-    prefix: &str,
-    plan: &dyn ExecutionPlan,
-    i: usize,
-) -> Result<StagePlanState, fmt::Error> {
-    let mut state = StagePlanState {
-        readers: HashMap::new(),
-    };
-    write_plan_recursive(f, prefix, plan, i, &mut state)?;
-    Ok(state)
+struct StagePlanWriter<'a> {
+    f: &'a mut String,
+    prefix: &'a str,
+    metrics: &'a Vec<MetricsSet>,
+    metrics_idx: usize,
 }
 
-fn write_plan_recursive(
-    f: &mut String,
-    prefix: &str,
-    plan: &dyn ExecutionPlan,
-    i: usize,
-    state: &mut StagePlanState,
-) -> Result<(), fmt::Error> {
-    let node_name = format!("{prefix}_{i}");
-    let display_name = get_operator_name(plan);
+impl<'a> StagePlanWriter<'a> {
+    fn new(
+        dot: &'a mut String,
+        prefix: &'a str,
+        plan_metrics: &'a Vec<MetricsSet>,
+    ) -> Self {
+        Self {
+            f: dot,
+            prefix,
+            metrics: plan_metrics,
+            metrics_idx: 0,
+        }
+    }
 
-    if let Some(reader) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
-        for part in &reader.partition {
-            for loc in part {
-                state
-                    .readers
-                    .insert(node_name.clone(), loc.partition_id.stage_id);
+    fn write(
+        &mut self,
+        plan: &dyn ExecutionPlan,
+        i: usize,
+    ) -> Result<StagePlanState, fmt::Error> {
+        let mut state = StagePlanState {
+            readers: HashMap::new(),
+        };
+        self.metrics_idx = 0;
+        self.write_plan_recursive(self.prefix, plan, i, &mut state)?;
+        Ok(state)
+    }
+
+    fn write_plan_recursive(
+        &mut self,
+        prefix: &str,
+        plan: &dyn ExecutionPlan,
+        i: usize,
+        state: &mut StagePlanState,
+    ) -> Result<(), fmt::Error> {
+        let node_name = format!("{}_{i}", prefix);
+        let display_name = get_operator_name(plan, self.metrics.get(self.metrics_idx));
+
+        if let Some(reader) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
+            for part in &reader.partition {
+                for loc in part {
+                    state
+                        .readers
+                        .insert(node_name.clone(), loc.partition_id.stage_id);
+                }
+            }
+        } else if let Some(reader) =
+            plan.as_any().downcast_ref::<RemoteShuffleReaderExec>()
+        {
+            for part in &reader.partition {
+                for loc in part {
+                    state
+                        .readers
+                        .insert(node_name.clone(), loc.partition_id.stage_id);
+                }
+            }
+        } else if let Some(reader) = plan.as_any().downcast_ref::<UnresolvedShuffleExec>()
+        {
+            state.readers.insert(node_name.clone(), reader.stage_id);
+        }
+
+        let mut metrics_str = vec![];
+        if let Some(metrics) = plan.metrics() {
+            if let Some(x) = metrics.output_rows() {
+                metrics_str.push(format!("output_rows={x}"))
+            }
+            if let Some(x) = metrics.elapsed_compute() {
+                metrics_str.push(format!("elapsed_compute={x}"))
             }
         }
-    } else if let Some(reader) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
-        for part in &reader.partition {
-            for loc in part {
-                state
-                    .readers
-                    .insert(node_name.clone(), loc.partition_id.stage_id);
-            }
+        if metrics_str.is_empty() {
+            writeln!(
+                self.f,
+                "\t\t{node_name} [shape=box, label=\"{display_name}\"]"
+            )?;
+        } else {
+            writeln!(
+                self.f,
+                "\t\t{} [shape=box, label=\"{}
+    {}\"]",
+                node_name,
+                display_name,
+                metrics_str.join(", ")
+            )?;
         }
-    } else if let Some(reader) = plan.as_any().downcast_ref::<UnresolvedShuffleExec>() {
-        state.readers.insert(node_name.clone(), reader.stage_id);
-    }
 
-    let mut metrics_str = vec![];
-    if let Some(metrics) = plan.metrics() {
-        if let Some(x) = metrics.output_rows() {
-            metrics_str.push(format!("output_rows={x}"))
+        for (j, child) in plan.children().into_iter().enumerate() {
+            self.metrics_idx += 1;
+            self.write_plan_recursive(&node_name, child.as_ref(), j, state)?;
+            // write link from child to parent
+            writeln!(&mut self.f, "\t\t{node_name}_{j} -> {node_name}")?;
         }
-        if let Some(x) = metrics.elapsed_compute() {
-            metrics_str.push(format!("elapsed_compute={x}"))
-        }
-    }
-    if metrics_str.is_empty() {
-        writeln!(f, "\t\t{node_name} [shape=box, label=\"{display_name}\"]")?;
-    } else {
-        writeln!(
-            f,
-            "\t\t{} [shape=box, label=\"{}
-{}\"]",
-            node_name,
-            display_name,
-            metrics_str.join(", ")
-        )?;
-    }
 
-    for (j, child) in plan.children().into_iter().enumerate() {
-        write_plan_recursive(f, &node_name, child.as_ref(), j, state)?;
-        // write link from child to parent
-        writeln!(f, "\t\t{node_name}_{j} -> {node_name}")?;
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[derive(Debug)]
@@ -259,9 +293,19 @@ fn sanitize(str: &str, max_len: Option<usize>) -> String {
     sanitized
 }
 
-fn get_operator_name(plan: &dyn ExecutionPlan) -> String {
+fn get_operator_name(plan: &dyn ExecutionPlan, metric: Option<&MetricsSet>) -> String {
+    let metric_str = if let Some(m) = metric {
+        format!("{}", m.aggregate_by_name().timestamps_removed())
+    } else {
+        "".to_string()
+    };
     if let Some(exec) = plan.as_any().downcast_ref::<FilterExec>() {
-        format!("Filter: {}", exec.predicate())
+        format!(
+            "Filter: {}
+            {}",
+            exec.predicate(),
+            metric_str
+        )
     } else if let Some(exec) = plan.as_any().downcast_ref::<ProjectionExec>() {
         let expr = exec
             .expr()
@@ -302,9 +346,11 @@ fn get_operator_name(plan: &dyn ExecutionPlan) -> String {
         format!(
             "Aggregate
 groupBy=[{}]
-aggr=[{}]",
+aggr=[{}]
+{}",
             sanitize_dot_label(&group_expr),
-            sanitize_dot_label(&aggr_expr)
+            sanitize_dot_label(&aggr_expr),
+            metric_str,
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<CoalesceBatchesExec>() {
         format!("CoalesceBatches [batchSize={}]", exec.target_batch_size())
@@ -333,9 +379,11 @@ aggr=[{}]",
         format!(
             "HashJoin
 join_expr={}
-filter_expr={}",
+filter_expr={}
+{}",
             sanitize_dot_label(&join_expr),
-            sanitize_dot_label(&filter_expr)
+            sanitize_dot_label(&filter_expr),
+            metric_str
         )
     } else if plan.as_any().downcast_ref::<CrossJoinExec>().is_some() {
         "CrossJoin".to_string()
@@ -344,32 +392,43 @@ filter_expr={}",
     } else if let Some(exec) = plan.as_any().downcast_ref::<UnresolvedShuffleExec>() {
         format!("UnresolvedShuffleExec [stage_id={}]", exec.stage_id)
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
-        format!("ShuffleReader [{} partitions]", exec.partition.len())
+        format!(
+            "ShuffleReader [{} partitions]
+            {}",
+            exec.partition.len(),
+            metric_str
+        )
     } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
-        format!("RemoteShuffleReader [{} partitions]", exec.partition.len())
+        format!(
+            "RemoteShuffleReader [{} partitions]
+            {}",
+            exec.partition.len(),
+            metric_str
+        )
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
-        log::warn!("shuffle dot writer metrics: {}", exec.metrics().unwrap());
         format!(
             "ShuffleWriter [{}]
             {}",
             format_optioned_partition(exec.shuffle_output_partitioning()),
-            exec.metrics().unwrap(),
+            metric_str,
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleWriterExec>() {
         format!(
             "RemoteShuffleWriter [{}]
-            {:?}",
+            {}",
             format_optioned_partition(exec.shuffle_output_partitioning()),
-            exec.metrics().unwrap(),
+            metric_str
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()
     } else if let Some(exec) = plan.as_any().downcast_ref::<CsvExec>() {
         let parts = exec.output_partitioning().partition_count();
         format!(
-            "CSV: {} [{} partitions]",
+            "CSV: {} [{} partitions]
+            {}",
             get_file_scan(exec.base_config()),
-            parts
+            parts,
+            metric_str,
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<NdJsonExec>() {
         let parts = exec.output_partitioning().partition_count();

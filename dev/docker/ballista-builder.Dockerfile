@@ -25,7 +25,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_MAJOR=18
 
 RUN apt-get update && \
-    apt-get -y install libssl-dev openssl zlib1g zlib1g-dev ca-certificates gnupg libpq-dev cmake protobuf-compiler netcat curl unzip
+    apt-get -y install libssl-dev openssl zlib1g zlib1g-dev lld clang ca-certificates gnupg libpq-dev cmake protobuf-compiler netcat curl unzip
 
 RUN mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
@@ -43,7 +43,7 @@ ENV HOME=/home/builder
 ENV PATH=$HOME/.cargo/bin:$PATH
 
 # prepare rust
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y && \
+RUN curl https://sh.rustup.rs -sSf | bash -s -- --default-toolchain nightly -y && \
     rustup component add rustfmt && \
     cargo install cargo-chef --version 0.1.34
 

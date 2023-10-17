@@ -622,7 +622,9 @@ async fn register_tables(
                         "Registering table '{table}' using Parquet files at path {path}"
                     );
                 }
-                ctx.register_parquet(table, &path, ParquetReadOptions::default())
+                let schema = SchemaBuilder::from(get_schema(table).fields).finish();
+                let options = ParquetReadOptions::default().schema(&schema);
+                ctx.register_parquet(table, &path, options)
                     .await
                     .map_err(|e| DataFusionError::Plan(format!("{e:?}")))?;
             }

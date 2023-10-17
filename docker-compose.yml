@@ -34,7 +34,7 @@ services:
     environment:
       - RUST_LOG=ballista=debug
     volumes:
-      - ./benchmarks/data-parquet:/data-parquet
+      - ./benchmarks/data:/data
     healthcheck:
       test: ["CMD", "nc", "-z", "ballista-scheduler", "50050"]
       interval: 5s
@@ -52,7 +52,7 @@ services:
     environment:
       - RUST_LOG=ballista=info
     volumes:
-      - ./benchmarks/data-parquet:/data-parquet
+      - ./benchmarks/data:/data
     ipc: "service:ipc-provider"
     shm_size: 2gb
     depends_on:
@@ -74,7 +74,7 @@ services:
     environment:
       - RUST_LOG=info
     volumes:
-      - ./benchmarks/data-parquet:/data-parquet
+      - ./benchmarks/data:/data
     depends_on:
       - ballista-scheduler
       - ballista-executor

@@ -887,10 +887,6 @@ impl ExecutionGraph {
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_millis(),
-                    launch_time: 0,
-                    start_exec_time: 0,
-                    end_exec_time: 0,
-                    finish_time: 0,
                     task_status: task_status::Status::Running(RunningTask {
                         executor_id: executor_id.to_owned()
                     }),
@@ -1334,10 +1330,6 @@ pub(crate) fn create_task_info(executor_id: String, task_id: usize) -> TaskInfo 
             .unwrap()
             .as_millis(),
         // Those times will be updated when the task finish
-        launch_time: 0,
-        start_exec_time: 0,
-        end_exec_time: 0,
-        finish_time: 0,
         task_status: task_status::Status::Running(RunningTask { executor_id }),
     }
 }

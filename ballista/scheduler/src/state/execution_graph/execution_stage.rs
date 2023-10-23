@@ -19,7 +19,6 @@ use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use datafusion::physical_optimizer::join_selection::JoinSelection;
@@ -197,16 +196,11 @@ pub(crate) struct FailedStage {
     /// Total number of partitions for this stage.
     /// This stage will produce on task for partition.
     pub(crate) partitions: usize,
-    /// Stage ID of the stage that will take this stages outputs as inputs.
-    /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
     /// `ExecutionPlan` for this stage
     pub(crate) plan: Arc<dyn ExecutionPlan>,
     /// TaskInfo of each already scheduled tasks. If info is None, the partition has not yet been scheduled
     /// The index of the Vec is the task's partition id
     pub(crate) task_infos: Vec<Option<TaskInfo>>,
-    /// Combined metrics of the already finished tasks in the stage, If it is None, no task is finished yet.
-    pub(crate) stage_metrics: Option<Vec<MetricsSet>>,
     /// Error message
     pub(crate) error_message: String,
 }
@@ -217,14 +211,6 @@ pub(crate) struct TaskInfo {
     pub(super) task_id: usize,
     /// Task scheduled time
     pub(super) scheduled_time: u128,
-    /// Task launch time
-    pub(super) launch_time: u128,
-    /// Start execution time
-    pub(super) start_exec_time: u128,
-    /// Finish execution time
-    pub(super) end_exec_time: u128,
-    /// Task finish time
-    pub(super) finish_time: u128,
     /// Task Status
     pub(super) task_status: task_status::Status,
 }
@@ -490,10 +476,8 @@ impl RunningStage {
             stage_id: self.stage_id,
             stage_attempt_num: self.stage_attempt_num,
             partitions: self.partitions,
-            output_links: self.output_links.clone(),
             plan: self.plan.clone(),
             task_infos: self.task_infos.clone(),
-            stage_metrics: self.stage_metrics.clone(),
             error_message,
         }
     }
@@ -591,13 +575,6 @@ impl RunningStage {
         let updated_task_info = TaskInfo {
             task_id,
             scheduled_time,
-            launch_time: status.launch_time as u128,
-            start_exec_time: status.start_exec_time as u128,
-            end_exec_time: status.end_exec_time as u128,
-            finish_time: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_millis(),
             task_status: task_status.clone(),
         };
         self.task_infos[partition_id] = Some(updated_task_info);
@@ -809,10 +786,6 @@ impl SuccessfulStage {
                     *task = TaskInfo {
                         task_id: *task_id,
                         scheduled_time: *scheduled_time,
-                        launch_time: 0,
-                        start_exec_time: 0,
-                        end_exec_time: 0,
-                        finish_time: 0,
                         task_status: task_status::Status::Failed(FailedTask {
                             error: failure_reason.clone(),
                             retryable: true,

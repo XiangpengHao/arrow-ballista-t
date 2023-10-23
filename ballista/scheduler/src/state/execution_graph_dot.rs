@@ -293,9 +293,33 @@ fn sanitize(str: &str, max_len: Option<usize>) -> String {
     sanitized
 }
 
+fn wrap_text_by_comma(s: &str, width: usize) -> String {
+    let chunks = s.split(',').collect::<Vec<_>>();
+    let mut result = String::new();
+    let mut line = String::new();
+
+    for chunk in chunks.iter() {
+        if line.len() + chunk.len() > width {
+            result.push_str(&line);
+            result.push('\n');
+            line.clear();
+        }
+        if !line.is_empty() {
+            line.push(',');
+        }
+        line.push_str(chunk);
+    }
+
+    if !line.is_empty() {
+        result.push_str(&line);
+    }
+
+    result
+}
+
 fn get_operator_name(plan: &dyn ExecutionPlan, metric: Option<&MetricsSet>) -> String {
     let metric_str = if let Some(m) = metric {
-        format!("{}", m.aggregate_by_name().timestamps_removed())
+        wrap_text_by_comma(&m.aggregate_by_name().timestamps_removed().to_string(), 80)
     } else {
         "".to_string()
     };
@@ -443,9 +467,11 @@ filter_expr={}
     } else if let Some(exec) = plan.as_any().downcast_ref::<ParquetExec>() {
         let parts = exec.output_partitioning().partition_count();
         format!(
-            "Parquet: {} [{} partitions]",
+            "Parquet: {} [{} partitions]
+            {}",
             get_file_scan(exec.base_config()),
-            parts
+            parts,
+            metric_str,
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<GlobalLimitExec>() {
         format!(

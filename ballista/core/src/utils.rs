@@ -501,3 +501,10 @@ pub fn get_time_before(interval_seconds: u64) -> u64 {
         .unwrap_or_else(|| Duration::from_secs(0))
         .as_secs()
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum JoinParentSide {
+    Left,
+    Right,
+    NotApplicable,
+}

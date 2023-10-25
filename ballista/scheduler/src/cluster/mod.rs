@@ -110,25 +110,25 @@ pub trait ClusterState: Send + Sync + 'static {
     /// Bind the ready to running tasks from [`active_jobs`] with available executors.
     ///
     /// If `executors` is provided, only bind slots from the specified executor IDs
-    async fn bind_schedulable_tasks(
+    fn bind_schedulable_tasks(
         &self,
         distribution: TaskDistribution,
         active_jobs: Arc<HashMap<String, JobInfoCache>>,
         executors: Option<HashSet<String>>,
-    ) -> Result<Vec<BoundTask>>;
+    ) -> impl std::future::Future<Output = Result<Vec<BoundTask>>> + Send;
 
     /// Unbind executor and task when a task finishes or fails. It will increase the executor
     /// available task slots.
     ///
     /// This operations should be atomic. Either all reservations are cancelled or none are
-    async fn unbind_tasks(&self, executor_slots: Vec<ExecutorSlot>) -> Result<()>;
+    fn unbind_tasks(&self, executor_slots: Vec<ExecutorSlot>) -> impl std::future::Future<Output = Result<()>> + Send;
 
     /// Register a new executor in the cluster.
-    async fn register_executor(
+    fn register_executor(
         &self,
         metadata: ExecutorMetadata,
         spec: ExecutorData,
-    ) -> Result<()>;
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 
     /// Save the executor metadata. This will overwrite existing metadata for the executor ID
     fn save_executor_metadata(&self, metadata: ExecutorMetadata);
@@ -140,7 +140,7 @@ pub trait ClusterState: Send + Sync + 'static {
     fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat);
 
     /// Remove the executor from the cluster
-    async fn remove_executor(&self, executor_id: &str) -> Result<()>;
+    fn remove_executor(&self, executor_id: &str) -> impl std::future::Future<Output = Result<()>> + Send;
 
     /// Return a map of the last seen heartbeat for all active executors
     fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat>;

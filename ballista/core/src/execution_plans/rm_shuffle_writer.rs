@@ -33,7 +33,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::utils;
+use crate::utils::{self, JoinParentSide};
 
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
@@ -82,6 +82,8 @@ pub struct RemoteShuffleWriterExec {
     shuffle_output_partitioning: Option<Partitioning>,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
+
+    join_side: JoinParentSide,
 }
 
 #[derive(Debug, Clone)]
@@ -148,11 +150,16 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
             work_dir,
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
+            join_side: JoinParentSide::NotApplicable,
         })
     }
 }
 
 impl RemoteShuffleWriterExec {
+    pub fn with_join_side(&mut self, side: JoinParentSide) {
+        self.join_side = side;
+    }
+
     pub fn execute_shuffle_write(
         &self,
         input_partition: usize,
@@ -421,8 +428,8 @@ impl DisplayAs for RemoteShuffleWriterExec {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
-                    "RemoteShuffleWriterExec: {:?}",
-                    self.shuffle_output_partitioning
+                    "RemoteShuffleWriterExec: {:?}, join_side: {:?}",
+                    self.shuffle_output_partitioning, self.join_side
                 )
             }
         }

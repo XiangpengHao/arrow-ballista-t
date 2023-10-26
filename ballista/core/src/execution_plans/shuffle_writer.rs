@@ -81,16 +81,16 @@ pub struct ShuffleWriterExec {
 }
 
 #[derive(Debug, Clone)]
-struct ShuffleWriteMetrics {
+pub(super) struct ShuffleWriteMetrics {
     /// Time spend writing batches to shuffle files
-    write_time: metrics::Time,
-    repart_time: metrics::Time,
-    input_rows: metrics::Count,
-    output_rows: metrics::Count,
+    pub(super) write_time: metrics::Time,
+    pub(super) repart_time: metrics::Time,
+    pub(super) input_rows: metrics::Count,
+    pub(super) output_rows: metrics::Count,
 }
 
 impl ShuffleWriteMetrics {
-    fn new(partition: usize, metrics: &ExecutionPlanMetricsSet) -> Self {
+    pub(super) fn new(partition: usize, metrics: &ExecutionPlanMetricsSet) -> Self {
         let write_time = MetricBuilder::new(metrics).subset_time("write_time", partition);
         let repart_time =
             MetricBuilder::new(metrics).subset_time("repart_time", partition);

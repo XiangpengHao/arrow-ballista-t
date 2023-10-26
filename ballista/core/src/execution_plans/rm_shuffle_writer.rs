@@ -61,6 +61,7 @@ use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use log::{debug, info};
 
+use super::shuffle_writer::ShuffleWriteMetrics;
 use super::sm_writer::SharedMemoryWriter;
 use super::ShuffleWriter;
 
@@ -84,34 +85,6 @@ pub struct RemoteShuffleWriterExec {
     metrics: ExecutionPlanMetricsSet,
 
     join_side: JoinParentSide,
-}
-
-#[derive(Debug, Clone)]
-struct ShuffleWriteMetrics {
-    /// Time spend writing batches to shuffle files
-    write_time: metrics::Time,
-    repart_time: metrics::Time,
-    input_rows: metrics::Count,
-    output_rows: metrics::Count,
-}
-
-impl ShuffleWriteMetrics {
-    fn new(partition: usize, metrics: &ExecutionPlanMetricsSet) -> Self {
-        let write_time = MetricBuilder::new(metrics).subset_time("write_time", partition);
-        let repart_time =
-            MetricBuilder::new(metrics).subset_time("repart_time", partition);
-
-        let input_rows = MetricBuilder::new(metrics).counter("input_rows", partition);
-
-        let output_rows = MetricBuilder::new(metrics).output_rows(partition);
-
-        Self {
-            write_time,
-            repart_time,
-            input_rows,
-            output_rows,
-        }
-    }
 }
 
 impl ShuffleWriter for RemoteShuffleWriterExec {

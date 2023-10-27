@@ -1,10 +1,36 @@
+use std::any::Any;
+use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 
-use datafusion::physical_plan::{
-    metrics::ExecutionPlanMetricsSet, ExecutionPlan, Partitioning,
+use datafusion::arrow::array::{
+    ArrayBuilder, ArrayRef, StringBuilder, StructBuilder, UInt32Builder, UInt64Builder,
 };
+use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::{datatypes::SchemaRef, error::ArrowError};
+use datafusion::error::{DataFusionError, Result};
+use datafusion::execution::TaskContext;
+use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_plan::{
+    memory::MemoryStream, metrics::MetricsSet, repartition::BatchPartitioner,
+};
+use datafusion::physical_plan::{
+    metrics::ExecutionPlanMetricsSet, stream::RecordBatchStreamAdapter, ExecutionPlan,
+    Partitioning,
+};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, SendableRecordBatchStream, Statistics,
+};
+use futures::{Future, TryFutureExt, TryStreamExt, StreamExt};
+use log::{debug, info};
 
-use crate::utils::JoinParentSide;
+use crate::execution_plans::sm_writer::SharedMemoryWriter;
+use crate::serde::protobuf::ShuffleWritePartition;
+use crate::serde::scheduler::PartitionStats;
+use crate::utils::{self, JoinParentSide};
+
+use super::shuffle_writer::{result_schema, ShuffleWriteMetrics};
+use super::ShuffleWriter;
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -26,4 +52,321 @@ pub struct RemoteShuffleBuilderExec {
     metrics: ExecutionPlanMetricsSet,
 
     join_side: JoinParentSide,
+}
+
+impl ShuffleWriter for RemoteShuffleBuilderExec {
+    fn job_id(&self) -> &str {
+        &self.job_id
+    }
+
+    /// Get the Stage ID for this query stage
+    fn stage_id(&self) -> usize {
+        self.stage_id
+    }
+
+    fn use_remote_memory() -> bool {
+        true
+    }
+
+    /// Get the true output partitioning
+    fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
+        self.shuffle_output_partitioning.as_ref()
+    }
+
+    /// Create a new shuffle writer
+    fn try_new(
+        job_id: String,
+        stage_id: usize,
+        plan: Arc<dyn ExecutionPlan>,
+        work_dir: String,
+        shuffle_output_partitioning: Option<Partitioning>,
+    ) -> Result<Self> {
+        info!("Creating shuffle writer for stage {}", stage_id);
+        Ok(Self {
+            job_id,
+            stage_id,
+            plan,
+            work_dir,
+            shuffle_output_partitioning,
+            metrics: ExecutionPlanMetricsSet::new(),
+            join_side: JoinParentSide::NotApplicable,
+        })
+    }
+}
+
+impl ExecutionPlan for RemoteShuffleBuilderExec {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        self.plan.schema()
+    }
+
+    fn output_partitioning(&self) -> Partitioning {
+        // This operator needs to be executed once for each *input* partition and there
+        // isn't really a mechanism yet in DataFusion to support this use case so we report
+        // the input partitioning as the output partitioning here. The executor reports
+        // output partition meta data back to the scheduler.
+        self.plan.output_partitioning()
+    }
+
+    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
+        None
+    }
+
+    fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+        vec![self.plan.clone()]
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        Ok(Arc::new(RemoteShuffleBuilderExec::try_new(
+            self.job_id.clone(),
+            self.stage_id,
+            children[0].clone(),
+            self.work_dir.clone(),
+            self.shuffle_output_partitioning.clone(),
+        )?))
+    }
+
+    fn execute(
+        &self,
+        partition: usize,
+        context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream> {
+        let schema = result_schema();
+
+        let schema_captured = schema.clone();
+        let fut_stream = self
+            .execute_shuffle_write(partition, context)
+            .and_then(|part_loc| async move {
+                // build metadata result batch
+                let num_writers = part_loc.len();
+                let mut partition_builder = UInt32Builder::with_capacity(num_writers);
+                let mut path_builder =
+                    StringBuilder::with_capacity(num_writers, num_writers * 100);
+                let mut num_rows_builder = UInt64Builder::with_capacity(num_writers);
+                let mut num_batches_builder = UInt64Builder::with_capacity(num_writers);
+                let mut num_bytes_builder = UInt64Builder::with_capacity(num_writers);
+
+                for loc in &part_loc {
+                    path_builder.append_value(loc.path.clone());
+                    partition_builder.append_value(loc.partition_id as u32);
+                    num_rows_builder.append_value(loc.num_rows);
+                    num_batches_builder.append_value(loc.num_batches);
+                    num_bytes_builder.append_value(loc.num_bytes);
+                }
+
+                // build arrays
+                let partition_num: ArrayRef = Arc::new(partition_builder.finish());
+                let path: ArrayRef = Arc::new(path_builder.finish());
+                let field_builders: Vec<Box<dyn ArrayBuilder>> = vec![
+                    Box::new(num_rows_builder),
+                    Box::new(num_batches_builder),
+                    Box::new(num_bytes_builder),
+                ];
+                let mut stats_builder = StructBuilder::new(
+                    PartitionStats::default().arrow_struct_fields(),
+                    field_builders,
+                );
+                for _ in 0..num_writers {
+                    stats_builder.append(true);
+                }
+                let stats = Arc::new(stats_builder.finish());
+
+                // build result batch containing metadata
+                let batch = RecordBatch::try_new(
+                    schema_captured.clone(),
+                    vec![partition_num, path, stats],
+                )?;
+
+                debug!("RESULTS METADATA:\n{:?}", batch);
+
+                MemoryStream::try_new(vec![batch], schema_captured, None)
+            })
+            .map_err(|e| ArrowError::ExternalError(Box::new(e)));
+
+        Ok(Box::pin(RecordBatchStreamAdapter::new(
+            schema,
+            futures::stream::once(fut_stream).try_flatten(),
+        )))
+    }
+
+    fn metrics(&self) -> Option<MetricsSet> {
+        Some(self.metrics.clone_inner())
+    }
+
+    fn statistics(&self) -> Statistics {
+        self.plan.statistics()
+    }
+}
+
+impl RemoteShuffleBuilderExec {
+    pub fn execute_shuffle_write(
+        &self,
+        input_partition: usize,
+        context: Arc<TaskContext>,
+    ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
+        let mut identifier = String::from_str("/shm-").unwrap();
+        identifier.push_str(&self.job_id);
+        identifier.push_str(&format!("-{}", self.stage_id));
+
+        let write_metrics = ShuffleWriteMetrics::new(input_partition, &self.metrics);
+        let output_partitioning = self.shuffle_output_partitioning.clone();
+        let plan = self.plan.clone();
+
+        async move {
+            let now = Instant::now();
+            let mut stream = plan.execute(input_partition, context)?;
+
+            match output_partitioning {
+                None => {
+                    let timer = write_metrics.write_time.timer();
+                    identifier.push_str(&format!("{input_partition}"));
+                    identifier.push_str("data.arrow");
+                    debug!("Writing results to {}", &identifier);
+
+                    // stream results to disk
+                    let stats = utils::write_stream_to_disk(
+                        &mut stream,
+                        &identifier,
+                        &write_metrics.write_time,
+                        true,
+                    )
+                    .await
+                    .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
+
+                    write_metrics
+                        .input_rows
+                        .add(stats.num_rows.unwrap_or(0) as usize);
+                    write_metrics
+                        .output_rows
+                        .add(stats.num_rows.unwrap_or(0) as usize);
+                    timer.done();
+
+                    info!(
+                        "Executed partition {} in {} seconds. Statistics: {}",
+                        input_partition,
+                        now.elapsed().as_secs(),
+                        stats
+                    );
+
+                    Ok(vec![ShuffleWritePartition {
+                        partition_id: input_partition as u64,
+                        path: identifier,
+                        num_batches: stats.num_batches.unwrap_or(0),
+                        num_rows: stats.num_rows.unwrap_or(0),
+                        num_bytes: stats.num_bytes.unwrap_or(0),
+                    }])
+                }
+
+                Some(Partitioning::Hash(exprs, num_output_partitions)) => {
+                    // we won't necessary produce output for every possible partition, so we
+                    // create writers on demand
+                    let mut writers: Vec<Option<SharedMemoryWriter>> = vec![];
+                    for _ in 0..num_output_partitions {
+                        writers.push(None);
+                    }
+
+                    let mut partitioner = BatchPartitioner::try_new(
+                        Partitioning::Hash(exprs, num_output_partitions),
+                        write_metrics.repart_time.clone(),
+                    )?;
+
+                    while let Some(result) = stream.next().await {
+                        let input_batch = result?;
+
+                        write_metrics.input_rows.add(input_batch.num_rows());
+
+                        partitioner.partition(
+                            input_batch,
+                            |output_partition, output_batch| {
+                                // partition func in datafusion make sure not write empty output_batch.
+                                let timer = write_metrics.write_time.timer();
+                                match &mut writers[output_partition] {
+                                    Some(w) => {
+                                        w.write(&output_batch)?;
+                                    }
+                                    None => {
+                                        let mut idt = identifier.clone();
+                                        idt.push_str(&format!("-{output_partition}"));
+
+                                        idt.push_str(&format!(
+                                            "-data-{input_partition}.arrow"
+                                        ));
+                                        debug!("Writing results to {:?}", idt);
+
+                                        let mut writer = SharedMemoryWriter::new(
+                                            idt,
+                                            stream.schema().as_ref(),
+                                        )?;
+
+                                        writer.write(&output_batch)?;
+                                        writers[output_partition] = Some(writer);
+                                    }
+                                }
+                                write_metrics.output_rows.add(output_batch.num_rows());
+                                timer.done();
+                                Ok(())
+                            },
+                        )?;
+                    }
+
+                    let mut part_locs = vec![];
+
+                    for (i, w) in writers.iter_mut().enumerate() {
+                        match w {
+                            Some(w) => {
+                                w.finish()?;
+                                debug!(
+                                    "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
+                                    i,
+                                    w.identifier(),
+                                    w.num_batches,
+                                    w.num_rows,
+                                    w.num_bytes
+                                );
+
+                                part_locs.push(ShuffleWritePartition {
+                                    partition_id: i as u64,
+                                    path: w.identifier().to_owned(),
+                                    num_batches: w.num_batches,
+                                    num_rows: w.num_rows,
+                                    num_bytes: w.num_bytes,
+                                });
+                            }
+                            None => {}
+                        }
+                    }
+                    log::warn!("shuffle write metrics: {:?}", write_metrics);
+                    Ok(part_locs)
+                }
+
+                _ => Err(DataFusionError::Execution(
+                    "Invalid shuffle partitioning scheme".to_owned(),
+                )),
+            }
+        }
+    }
+}
+
+impl DisplayAs for RemoteShuffleBuilderExec {
+    fn fmt_as(
+        &self,
+        t: DisplayFormatType,
+        f: &mut std::fmt::Formatter,
+    ) -> std::fmt::Result {
+        match t {
+            DisplayFormatType::Default | DisplayFormatType::Verbose => {
+                write!(
+                    f,
+                    "RemoteShuffleBuilderExec: {:?}, join_side: {:?}",
+                    self.shuffle_output_partitioning, self.join_side
+                )
+            }
+        }
+    }
 }

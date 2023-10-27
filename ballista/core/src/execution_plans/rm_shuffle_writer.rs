@@ -40,14 +40,11 @@ use crate::serde::scheduler::PartitionStats;
 use datafusion::arrow::array::{
     ArrayBuilder, ArrayRef, StringBuilder, StructBuilder, UInt32Builder, UInt64Builder,
 };
-use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::physical_plan::memory::MemoryStream;
-use datafusion::physical_plan::metrics::{
-    self, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
-};
+use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
@@ -61,7 +58,7 @@ use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use log::{debug, info};
 
-use super::shuffle_writer::ShuffleWriteMetrics;
+use super::shuffle_writer::{result_schema, ShuffleWriteMetrics};
 use super::sm_writer::SharedMemoryWriter;
 use super::ShuffleWriter;
 
@@ -407,13 +404,4 @@ impl DisplayAs for RemoteShuffleWriterExec {
             }
         }
     }
-}
-
-fn result_schema() -> SchemaRef {
-    let stats = PartitionStats::default();
-    Arc::new(Schema::new(vec![
-        Field::new("partition", DataType::UInt32, false),
-        Field::new("path", DataType::Utf8, false),
-        stats.arrow_struct_repr(),
-    ]))
 }

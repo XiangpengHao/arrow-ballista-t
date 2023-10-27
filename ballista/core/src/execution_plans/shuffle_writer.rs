@@ -427,7 +427,7 @@ impl DisplayAs for ShuffleWriterExec {
     }
 }
 
-fn result_schema() -> SchemaRef {
+pub(super) fn result_schema() -> SchemaRef {
     let stats = PartitionStats::default();
     Arc::new(Schema::new(vec![
         Field::new("partition", DataType::UInt32, false),

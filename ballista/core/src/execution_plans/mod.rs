@@ -20,13 +20,14 @@
 //!
 
 mod distributed_query;
-mod rm_shuffle_left_writer;
+mod rm_shuffle_join_writer;
 mod rm_shuffle_reader;
 mod rm_shuffle_writer;
 mod shuffle_reader;
 mod shuffle_writer;
 mod sm_writer;
 mod unresolved_shuffle;
+mod utils;
 
 use datafusion::error::Result;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};

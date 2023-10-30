@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#![feature(allocator_api)]
 #![doc = include_str!("../README.md")]
 pub const BALLISTA_VERSION: &str = env!("CARGO_PKG_VERSION");
 

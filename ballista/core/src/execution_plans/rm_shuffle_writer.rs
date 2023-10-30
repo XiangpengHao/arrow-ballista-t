@@ -59,7 +59,7 @@ use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use log::{debug, info};
 
 use super::shuffle_writer::{result_schema, ShuffleWriteMetrics};
-use super::sm_writer::SharedMemoryWriter;
+use super::sm_writer::SharedMemoryFileWriter;
 use super::ShuffleWriter;
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
@@ -191,7 +191,7 @@ impl RemoteShuffleWriterExec {
                 Some(Partitioning::Hash(exprs, num_output_partitions)) => {
                     // we won't necessary produce output for every possible partition, so we
                     // create writers on demand
-                    let mut writers: Vec<Option<SharedMemoryWriter>> = vec![];
+                    let mut writers: Vec<Option<SharedMemoryFileWriter>> = vec![];
                     for _ in 0..num_output_partitions {
                         writers.push(None);
                     }
@@ -224,7 +224,7 @@ impl RemoteShuffleWriterExec {
                                         ));
                                         debug!("Writing results to {:?}", idt);
 
-                                        let mut writer = SharedMemoryWriter::new(
+                                        let mut writer = SharedMemoryFileWriter::new(
                                             idt,
                                             stream.schema().as_ref(),
                                         )?;

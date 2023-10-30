@@ -21,10 +21,10 @@ use datafusion::physical_plan::{
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, SendableRecordBatchStream, Statistics,
 };
-use futures::{Future, TryFutureExt, TryStreamExt, StreamExt};
+use futures::{Future, StreamExt, TryFutureExt, TryStreamExt};
 use log::{debug, info};
 
-use crate::execution_plans::sm_writer::SharedMemoryWriter;
+use crate::execution_plans::sm_writer::SharedMemoryByteWriter;
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
 use crate::utils::{self, JoinParentSide};
@@ -37,7 +37,7 @@ use super::ShuffleWriter;
 /// partition is re-partitioned and streamed to disk in Arrow IPC format. Future stages of the query
 /// will use the ShuffleReaderExec to read these results.
 #[derive(Debug, Clone)]
-pub struct RemoteShuffleBuilderExec {
+pub struct RemoteShuffleJoinExec {
     /// Unique ID for the job (query) that this stage is a part of
     job_id: String,
     /// Unique query stage ID within the job
@@ -54,7 +54,7 @@ pub struct RemoteShuffleBuilderExec {
     join_side: JoinParentSide,
 }
 
-impl ShuffleWriter for RemoteShuffleBuilderExec {
+impl ShuffleWriter for RemoteShuffleJoinExec {
     fn job_id(&self) -> &str {
         &self.job_id
     }
@@ -94,7 +94,7 @@ impl ShuffleWriter for RemoteShuffleBuilderExec {
     }
 }
 
-impl ExecutionPlan for RemoteShuffleBuilderExec {
+impl ExecutionPlan for RemoteShuffleJoinExec {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -123,7 +123,7 @@ impl ExecutionPlan for RemoteShuffleBuilderExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(RemoteShuffleBuilderExec::try_new(
+        Ok(Arc::new(RemoteShuffleJoinExec::try_new(
             self.job_id.clone(),
             self.stage_id,
             children[0].clone(),
@@ -204,7 +204,7 @@ impl ExecutionPlan for RemoteShuffleBuilderExec {
     }
 }
 
-impl RemoteShuffleBuilderExec {
+impl RemoteShuffleJoinExec {
     pub fn execute_shuffle_write(
         &self,
         input_partition: usize,
@@ -266,7 +266,7 @@ impl RemoteShuffleBuilderExec {
                 Some(Partitioning::Hash(exprs, num_output_partitions)) => {
                     // we won't necessary produce output for every possible partition, so we
                     // create writers on demand
-                    let mut writers: Vec<Option<SharedMemoryWriter>> = vec![];
+                    let mut writers: Vec<Option<SharedMemoryByteWriter>> = vec![];
                     for _ in 0..num_output_partitions {
                         writers.push(None);
                     }
@@ -275,6 +275,9 @@ impl RemoteShuffleBuilderExec {
                         Partitioning::Hash(exprs, num_output_partitions),
                         write_metrics.repart_time.clone(),
                     )?;
+
+                    // TODO: we need a real cardinality estimation here.
+                    let estimated_size_per_partition = 1024 * 1024 * 512;
 
                     while let Some(result) = stream.next().await {
                         let input_batch = result?;
@@ -299,9 +302,10 @@ impl RemoteShuffleBuilderExec {
                                         ));
                                         debug!("Writing results to {:?}", idt);
 
-                                        let mut writer = SharedMemoryWriter::new(
+                                        let mut writer = SharedMemoryByteWriter::new(
                                             idt,
                                             stream.schema().as_ref(),
+                                            estimated_size_per_partition,
                                         )?;
 
                                         writer.write(&output_batch)?;
@@ -353,7 +357,7 @@ impl RemoteShuffleBuilderExec {
     }
 }
 
-impl DisplayAs for RemoteShuffleBuilderExec {
+impl DisplayAs for RemoteShuffleJoinExec {
     fn fmt_as(
         &self,
         t: DisplayFormatType,

@@ -50,6 +50,8 @@ use tokio::sync::RwLock;
 
 use tracing::trace;
 
+use super::RemoteMemoryMode;
+
 type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
 
 // TODO move to configuration file
@@ -210,7 +212,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
-        use_remote_memory: bool,
+        mode: RemoteMemoryMode,
     ) -> Result<()> {
         info!(
             "Converting execution plan into execution graph: {}",
@@ -224,7 +226,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             session_id,
             plan,
             queued_at,
-            use_remote_memory,
+            mode,
         )?;
         info!("Submitting execution graph: {:?}", graph);
 

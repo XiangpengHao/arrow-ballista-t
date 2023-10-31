@@ -57,9 +57,11 @@ use object_store::aws::AmazonS3Builder;
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::ObjectStore;
 use std::ffi::CString;
+use std::fmt::Display;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::os::fd::FromRawFd;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -507,4 +509,43 @@ pub enum JoinParentSide {
     Left,
     Right,
     NotApplicable,
+}
+
+#[derive(Debug, Clone)]
+pub enum RemoteMemoryMode {
+    DoNotUse,
+    FileBasedShuffle,
+    MemoryBasedShuffle,
+    JoinOnRemote,
+}
+
+impl Default for RemoteMemoryMode {
+    fn default() -> Self {
+        RemoteMemoryMode::DoNotUse
+    }
+}
+
+impl Display for RemoteMemoryMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RemoteMemoryMode::DoNotUse => write!(f, "do-not-use"),
+            RemoteMemoryMode::FileBasedShuffle => write!(f, "file-based-shuffle"),
+            RemoteMemoryMode::MemoryBasedShuffle => write!(f, "memory-based-shuffle"),
+            RemoteMemoryMode::JoinOnRemote => write!(f, "join-on-remote"),
+        }
+    }
+}
+
+impl FromStr for RemoteMemoryMode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "do-not-use" => Ok(RemoteMemoryMode::DoNotUse),
+            "file-based-shuffle" => Ok(RemoteMemoryMode::FileBasedShuffle),
+            "memory-based-shuffle" => Ok(RemoteMemoryMode::MemoryBasedShuffle),
+            "join-on-remote" => Ok(RemoteMemoryMode::JoinOnRemote),
+            _ => Err("invalid remote memory mode"),
+        }
+    }
 }

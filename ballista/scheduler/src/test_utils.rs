@@ -56,7 +56,7 @@ use crate::cluster::BallistaCluster;
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
 use crate::state::execution_graph::{ExecutionGraph, TaskDescription};
-use ballista_core::utils::default_session_builder;
+use ballista_core::utils::{default_session_builder, RemoteMemoryMode};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -490,7 +490,14 @@ impl SchedulerTest {
             .create_session(&self.ballista_config)?;
 
         self.scheduler
-            .submit_job(job_id, job_name, ctx, plan, "".to_owned(), false)
+            .submit_job(
+                job_id,
+                job_name,
+                ctx,
+                plan,
+                "".to_owned(),
+                RemoteMemoryMode::DoNotUse,
+            )
             .await?;
 
         Ok(())
@@ -614,7 +621,14 @@ impl SchedulerTest {
             .create_session(&self.ballista_config)?;
 
         self.scheduler
-            .submit_job(job_id, job_name, ctx, plan, "".to_owned(), false)
+            .submit_job(
+                job_id,
+                job_name,
+                ctx,
+                plan,
+                "".to_owned(),
+                RemoteMemoryMode::DoNotUse,
+            )
             .await?;
 
         let mut receiver = self.status_receiver.take().unwrap();
@@ -808,7 +822,16 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false).unwrap()
+    ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap()
 }
 
 pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
@@ -843,7 +866,16 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false).unwrap()
+    ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap()
 }
 
 pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
@@ -870,7 +902,16 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         .await
         .unwrap();
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false).unwrap()
+    ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap()
 }
 
 pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
@@ -918,9 +959,16 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false)
-            .unwrap();
+    let graph = ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap();
 
     println!("{graph:?}");
 
@@ -951,9 +999,16 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false)
-            .unwrap();
+    let graph = ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap();
 
     println!("{graph:?}");
 
@@ -984,9 +1039,16 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, false)
-            .unwrap();
+    let graph = ExecutionGraph::new(
+        "localhost:50050",
+        "job",
+        "",
+        "session",
+        plan,
+        0,
+        RemoteMemoryMode::DoNotUse,
+    )
+    .unwrap();
 
     println!("{graph:?}");
 

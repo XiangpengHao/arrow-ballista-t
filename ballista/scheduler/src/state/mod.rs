@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::utils::RemoteMemoryMode;
 use datafusion::common::tree_node::{TreeNode, VisitRecursion};
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
 use datafusion::datasource::source_as_provider;
@@ -354,7 +355,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         session_ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
         queued_at: u64,
-        use_remote_memory: bool,
+        mode: RemoteMemoryMode,
     ) -> Result<()> {
         let start = Instant::now();
 
@@ -416,7 +417,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             &session_ctx.session_id(),
             plan,
             queued_at,
-            use_remote_memory,
+            mode,
         )?;
 
         let elapsed = start.elapsed();

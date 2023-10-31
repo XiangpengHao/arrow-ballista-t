@@ -20,8 +20,8 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    RemoteShuffleReaderExec, RemoteShuffleWriterExec, ShuffleReaderExec, ShuffleWriter,
-    ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleJoinExec, RemoteShuffleReaderExec, RemoteShuffleWriterExec,
+    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -443,6 +443,13 @@ filter_expr={}
             format_optioned_partition(exec.shuffle_output_partitioning()),
             metric_str
         )
+    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
+        format!(
+            "RemoteShuffleJoinWriter [{}]
+            {}",
+            format_optioned_partition(exec.shuffle_output_partitioning()),
+            metric_str
+        )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()
     } else if let Some(exec) = plan.as_any().downcast_ref::<CsvExec>() {
@@ -555,6 +562,7 @@ fn get_file_scan(scan: &FileScanConfig) -> String {
 mod tests {
     use crate::state::execution_graph::ExecutionGraph;
     use crate::state::execution_graph_dot::ExecutionGraphDot;
+    use crate::state::RemoteMemoryMode;
     use ballista_core::error::{BallistaError, Result};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
@@ -801,7 +809,7 @@ filter_expr="]
             "session_id",
             plan,
             0,
-            false,
+            RemoteMemoryMode::DoNotUse,
         )
     }
 
@@ -834,7 +842,7 @@ filter_expr="]
             "session_id",
             plan,
             0,
-            false,
+            RemoteMemoryMode::DoNotUse,
         )
     }
 }

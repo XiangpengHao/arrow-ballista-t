@@ -28,7 +28,8 @@ use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::execution_plans::{
-    RemoteShuffleWriterExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleJoinExec, RemoteShuffleWriterExec, ShuffleWriter, ShuffleWriterExec,
+    UnresolvedShuffleExec,
 };
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
@@ -51,6 +52,8 @@ pub(crate) use crate::state::execution_graph::execution_stage::{
 use crate::state::task_manager::UpdatedStages;
 
 use self::execution_stage::RunningStage;
+
+use super::RemoteMemoryMode;
 
 mod execution_stage;
 
@@ -141,20 +144,33 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
-        use_remote_memory: bool,
+        mode: RemoteMemoryMode,
     ) -> Result<Self> {
-        let stages = if use_remote_memory {
-            let mut planner = DistributedPlanner::<RemoteShuffleWriterExec>::new();
-            let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
+        let stages = match mode {
+            RemoteMemoryMode::DoNotUse => {
+                let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+                let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-            let builder = ExecutionStageBuilder::new();
-            builder.build(shuffle_stages)?
-        } else {
-            let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
-            let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
+                let builder = ExecutionStageBuilder::new();
+                builder.build(shuffle_stages)?
+            }
+            RemoteMemoryMode::MemoryBasedShuffle => {
+                let mut planner = DistributedPlanner::<RemoteShuffleJoinExec>::new();
+                let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-            let builder = ExecutionStageBuilder::new();
-            builder.build(shuffle_stages)?
+                let builder = ExecutionStageBuilder::new();
+                builder.build(shuffle_stages)?
+            }
+            RemoteMemoryMode::FileBasedShuffle => {
+                let mut planner = DistributedPlanner::<RemoteShuffleWriterExec>::new();
+                let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
+
+                let builder = ExecutionStageBuilder::new();
+                builder.build(shuffle_stages)?
+            }
+            RemoteMemoryMode::JoinOnRemote => {
+                todo!("not implemented yet");
+            }
         };
 
         let started_at = timestamp_millis();
@@ -1412,6 +1428,10 @@ impl ExecutionPlanVisitor for ExecutionStageBuilder {
             self.current_stage_id = shuffle_write.stage_id();
         } else if let Some(shuffle_write) =
             plan.as_any().downcast_ref::<RemoteShuffleWriterExec>()
+        {
+            self.current_stage_id = shuffle_write.stage_id();
+        } else if let Some(shuffle_write) =
+            plan.as_any().downcast_ref::<RemoteShuffleJoinExec>()
         {
             self.current_stage_id = shuffle_write.stage_id();
         } else if let Some(unresolved_shuffle) =

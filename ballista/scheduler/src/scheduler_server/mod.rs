@@ -23,6 +23,7 @@ use ballista_core::error::Result;
 use ballista_core::serde::protobuf::TaskStatus;
 use ballista_core::serde::BallistaCodec;
 
+use ballista_core::utils::RemoteMemoryMode;
 use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -160,7 +161,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
         sql: String,
-        use_remote_memory: bool,
+        mode: RemoteMemoryMode,
     ) -> Result<()> {
         self.state.task_manager.register_sql(job_id, sql);
         self.query_stage_event_loop
@@ -171,7 +172,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 session_ctx: ctx,
                 plan: Box::new(plan.clone()),
                 queued_at: timestamp_millis(),
-                use_remote_memory,
+                mode,
             })
             .await
     }

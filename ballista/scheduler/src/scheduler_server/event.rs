@@ -20,7 +20,7 @@ use std::fmt::{Debug, Formatter};
 use datafusion::logical_expr::LogicalPlan;
 
 use crate::state::execution_graph::RunningTaskInfo;
-use ballista_core::serde::protobuf::TaskStatus;
+use ballista_core::{serde::protobuf::TaskStatus, utils::RemoteMemoryMode};
 use datafusion::prelude::SessionContext;
 use std::sync::Arc;
 
@@ -32,7 +32,7 @@ pub enum QueryStageSchedulerEvent {
         session_ctx: Arc<SessionContext>,
         plan: Box<LogicalPlan>,
         queued_at: u64,
-        use_remote_memory: bool,
+        mode: RemoteMemoryMode,
     },
     JobSubmitted {
         job_id: String,

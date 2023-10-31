@@ -16,9 +16,11 @@
 // under the License.
 
 use ballista_core::config::{
-    BallistaConfig, BALLISTA_JOB_NAME, BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
+    BallistaConfig, BALLISTA_JOB_NAME, BALLISTA_REMOTE_MEMORY_MODE,
 };
+use ballista_core::utils::RemoteMemoryMode;
 use std::convert::TryInto;
+use std::str::FromStr;
 
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
 use ballista_core::serde::protobuf::{
@@ -321,29 +323,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             .cloned()
             .unwrap_or_default();
 
-        let use_remote_memory = config
+        let remote_mode = config
             .settings()
-            .get(BALLISTA_SHUFFLE_USE_REMOTE_MEMORY)
-            .cloned()
-            .unwrap_or_default()
-            .parse::<bool>()
-            .unwrap();
+            .get(BALLISTA_REMOTE_MEMORY_MODE)
+            .map_or(RemoteMemoryMode::DoNotUse, |v| {
+                RemoteMemoryMode::from_str(v).unwrap()
+            });
 
-        self.submit_job(
-            &job_id,
-            &job_name,
-            session_ctx,
-            &plan,
-            sql,
-            use_remote_memory,
-        )
-        .await
-        .map_err(|e| {
-            let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");
-            error!("{}", msg);
+        self.submit_job(&job_id, &job_name, session_ctx, &plan, sql, remote_mode)
+            .await
+            .map_err(|e| {
+                let msg = format!("Failed to send JobQueued event for {job_id}: {e:?}");
+                error!("{}", msg);
 
-            Status::internal(msg)
-        })?;
+                Status::internal(msg)
+            })?;
 
         Ok(Response::new(ExecuteQueryResult { job_id, session_id }))
     }

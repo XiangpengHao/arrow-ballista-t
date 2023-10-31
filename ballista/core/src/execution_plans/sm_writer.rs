@@ -1,17 +1,28 @@
-use std::{collections::HashMap, ffi::CString, io::Write, ptr::null_mut};
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    fs::File,
+    io::Write,
+    os::fd::AsRawFd,
+    path::{Path, PathBuf},
+    ptr::null_mut,
+};
 
-use datafusion::arrow::{
-    datatypes::Schema,
-    error::{ArrowError, Result},
-    ipc::{
-        convert,
-        writer::{
-            write_message, DictionaryTracker, FileWriter, IpcDataGenerator,
-            IpcWriteOptions,
+use datafusion::{
+    arrow::{
+        datatypes::Schema,
+        error::{ArrowError, Result},
+        ipc::{
+            convert,
+            writer::{
+                write_message, DictionaryTracker, FileWriter, IpcDataGenerator,
+                IpcWriteOptions,
+            },
+            Block, FooterBuilder, MetadataVersion,
         },
-        Block, FooterBuilder, MetadataVersion,
+        record_batch::RecordBatch,
     },
-    record_batch::RecordBatch,
+    error::DataFusionError,
 };
 use flatbuffers::FlatBufferBuilder;
 
@@ -349,4 +360,63 @@ fn write_continuation<W: Write>(mut writer: W, total_len: i32) -> Result<usize> 
     writer.flush()?;
 
     Ok(written)
+}
+
+/// Write in Arrow IPC format.
+pub struct IPCWriter {
+    /// path
+    pub path: PathBuf,
+    /// inner writer
+    pub writer: FileWriter<File>,
+    /// batches written
+    pub num_batches: u64,
+    /// rows written
+    pub num_rows: u64,
+    /// bytes written
+    pub num_bytes: u64,
+}
+
+fn advise_no_cache(file: &File) -> i32 {
+    unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) }
+}
+
+impl IPCWriter {
+    /// Create new writer
+    pub fn new(path: &Path, schema: &Schema) -> Result<Self> {
+        let file = File::create(path).map_err(|e| {
+            DataFusionError::Execution(format!(
+                "Failed to create partition file at {path:?}: {e:?}"
+            ))
+        })?;
+        advise_no_cache(&file);
+        Ok(Self {
+            num_batches: 0,
+            num_rows: 0,
+            num_bytes: 0,
+            path: path.into(),
+            writer: FileWriter::try_new(file, schema)?,
+        })
+    }
+
+    /// Write one single batch
+    pub fn write(&mut self, batch: &RecordBatch) -> Result<()> {
+        self.writer.write(batch)?;
+        self.num_batches += 1;
+        self.num_rows += batch.num_rows() as u64;
+        let num_bytes: usize = batch.get_array_memory_size();
+        self.num_bytes += num_bytes as u64;
+        Ok(())
+    }
+
+    /// Finish the writer
+    pub fn finish(&mut self) -> Result<()> {
+        self.writer.finish()?;
+        advise_no_cache(&self.writer.get_ref());
+        Ok(())
+    }
+
+    /// Path write to
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }

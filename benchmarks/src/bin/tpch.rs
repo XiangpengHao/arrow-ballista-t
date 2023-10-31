@@ -20,8 +20,9 @@
 use ballista::context::BallistaContext;
 use ballista::prelude::{
     BallistaConfig, BALLISTA_DEFAULT_BATCH_SIZE, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
-    BALLISTA_JOB_NAME, BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
+    BALLISTA_JOB_NAME, BALLISTA_REMOTE_MEMORY_MODE,
 };
+use ballista_core::utils::RemoteMemoryMode;
 use datafusion::arrow::array::*;
 use datafusion::arrow::datatypes::SchemaBuilder;
 use datafusion::arrow::util::display::array_value_to_string;
@@ -121,8 +122,8 @@ struct BallistaBenchmarkOpt {
     #[structopt(parse(from_os_str), short = "o", long = "output")]
     output_path: Option<PathBuf>,
 
-    #[structopt(long = "shuffle-use-remote-memory")]
-    shuffle_use_remote_memory: bool,
+    #[structopt(long = "remote-how")]
+    remote_memory_mode: RemoteMemoryMode,
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -368,8 +369,8 @@ async fn benchmark_ballista(opt: BallistaBenchmarkOpt) -> Result<()> {
         )
         .set(BALLISTA_DEFAULT_BATCH_SIZE, &format!("{}", opt.batch_size))
         .set(
-            BALLISTA_SHUFFLE_USE_REMOTE_MEMORY,
-            &format!("{}", opt.shuffle_use_remote_memory),
+            BALLISTA_REMOTE_MEMORY_MODE,
+            &format!("{}", opt.remote_memory_mode),
         )
         .build()
         .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;

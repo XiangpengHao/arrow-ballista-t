@@ -32,6 +32,7 @@ mod utils;
 
 use datafusion::error::Result;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
+pub use rm_shuffle_join_writer::RemoteShuffleJoinExec;
 pub use rm_shuffle_reader::RemoteShuffleReaderExec;
 pub use rm_shuffle_writer::RemoteShuffleWriterExec;
 use std::sync::Arc;

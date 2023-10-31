@@ -91,7 +91,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 session_ctx,
                 plan,
                 queued_at,
-                use_remote_memory,
+                mode,
             } => {
                 info!("Job {} queued with name {:?}", job_id, job_name);
 
@@ -113,7 +113,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                             session_ctx,
                             &plan,
                             queued_at,
-                            use_remote_memory,
+                            mode,
                         )
                         .await
                     {

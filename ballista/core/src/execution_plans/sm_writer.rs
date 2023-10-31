@@ -259,10 +259,6 @@ impl<W: Write> NoBuffWriter<W> {
         })
     }
 
-    pub fn write_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.custom_metadata.insert(key.into(), value.into());
-    }
-
     /// Write a record batch to the file
     pub fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         if self.finished {
@@ -308,7 +304,7 @@ impl<W: Write> NoBuffWriter<W> {
         }
 
         // write EOS
-        write_continuation(&mut self.writer, &self.write_options, 0)?;
+        write_continuation(&mut self.writer, 0)?;
 
         let mut fbb = FlatBufferBuilder::new();
         let dictionaries = fbb.create_vector(&self.dictionary_blocks);
@@ -339,28 +335,12 @@ impl<W: Write> NoBuffWriter<W> {
 
         Ok(())
     }
-
-    /// Gets a reference to the underlying writer.
-    pub fn get_ref(&self) -> &W {
-        &self.writer
-    }
-
-    /// Gets a mutable reference to the underlying writer.
-    ///
-    /// It is inadvisable to directly write to the underlying writer.
-    pub fn get_mut(&mut self) -> &mut W {
-        &mut self.writer
-    }
 }
 
 /// Write a record batch to the writer, writing the message size before the message
 /// if the record batch is being written to a stream
-fn write_continuation<W: Write>(
-    mut writer: W,
-    write_options: &IpcWriteOptions,
-    total_len: i32,
-) -> Result<usize> {
-    let mut written = 8;
+fn write_continuation<W: Write>(mut writer: W, total_len: i32) -> Result<usize> {
+    let written = 8;
 
     // write continuation marker and message length
     writer.write_all(&CONTINUATION_MARKER)?;

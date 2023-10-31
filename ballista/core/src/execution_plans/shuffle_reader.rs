@@ -204,7 +204,7 @@ fn stats_for_partitions(
     )
 }
 
-struct LocalShuffleStream {
+pub(super) struct LocalShuffleStream {
     reader: FileReader<File>,
 }
 
@@ -235,7 +235,7 @@ impl RecordBatchStream for LocalShuffleStream {
 }
 
 /// Adapter for a tokio ReceiverStream that implements the SendableRecordBatchStream interface
-struct AbortableReceiverStream {
+pub(super) struct AbortableReceiverStream {
     inner: ReceiverStream<result::Result<SendableRecordBatchStream, BallistaError>>,
 
     #[allow(dead_code)]

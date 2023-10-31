@@ -21,7 +21,7 @@ use ballista_core::execution_plans::{
     RemoteShuffleJoinExec, RemoteShuffleWriterExec, ShuffleWriter, ShuffleWriterExec,
 };
 use ballista_core::serde::protobuf::ShuffleWritePartition;
-use ballista_core::utils;
+use ballista_core::utils::{self, RemoteMemoryMode};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::metrics::MetricsSet;
@@ -77,6 +77,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
+                RemoteMemoryMode::DoNotUse,
             )?;
 
             Ok(Arc::new(DefaultQueryStageExec::new(exec)))
@@ -90,6 +91,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
+                RemoteMemoryMode::FileBasedShuffle,
             )?;
             Ok(Arc::new(DefaultQueryStageExec::new(exec)))
         } else if let Some(shuffle_writer) =
@@ -102,6 +104,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
+                RemoteMemoryMode::MemoryBasedShuffle,
             )?;
             Ok(Arc::new(DefaultQueryStageExec::new(exec)))
         } else {
@@ -132,7 +135,7 @@ impl QueryStageExecutor for DefaultQueryStageExec<ShuffleWriterExec> {
         context: Arc<TaskContext>,
     ) -> Result<Vec<ShuffleWritePartition>> {
         self.shuffle_writer
-            .execute_shuffle_write(input_partition, context)
+            .execute_conventional_shuffle_write(input_partition, context)
             .await
     }
 

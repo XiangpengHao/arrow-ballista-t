@@ -406,7 +406,7 @@ mod tests {
     use super::*;
     use crate::execution_plans::{ShuffleWriter, ShuffleWriterExec};
     use crate::serde::scheduler::{ExecutorMetadata, ExecutorSpecification, PartitionId};
-    use crate::utils;
+    use crate::utils::{self, RemoteMemoryMode};
     use datafusion::arrow::array::{Int32Array, StringArray, UInt32Array};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::ipc::writer::FileWriter;
@@ -560,6 +560,7 @@ mod tests {
             create_test_data_plan().unwrap(),
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 1)),
+            RemoteMemoryMode::default(),
         )
         .unwrap();
 

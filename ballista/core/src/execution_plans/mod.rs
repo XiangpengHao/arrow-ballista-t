@@ -42,12 +42,14 @@ pub use shuffle_reader::ShuffleReaderExec;
 pub use shuffle_writer::ShuffleWriterExec;
 pub use unresolved_shuffle::UnresolvedShuffleExec;
 
+use crate::utils::RemoteMemoryMode;
+
 pub trait ShuffleWriter: Sized + ExecutionPlan {
     fn job_id(&self) -> &str;
 
     fn stage_id(&self) -> usize;
 
-    fn use_remote_memory() -> bool;
+    fn remote_memory_mode(&self) -> RemoteMemoryMode;
 
     /// Get the true output partitioning
     fn shuffle_output_partitioning(&self) -> Option<&Partitioning>;
@@ -59,5 +61,6 @@ pub trait ShuffleWriter: Sized + ExecutionPlan {
         plan: Arc<dyn ExecutionPlan>,
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
+        remote_mode: RemoteMemoryMode,
     ) -> Result<Self>;
 }

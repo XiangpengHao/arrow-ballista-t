@@ -24,7 +24,6 @@ pub mod display;
 pub mod event_loop;
 pub mod metrics;
 pub mod planner;
-pub mod rm_planner;
 pub mod scheduler_process;
 pub mod scheduler_server;
 

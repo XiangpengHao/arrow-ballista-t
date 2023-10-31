@@ -148,21 +148,22 @@ impl ExecutionGraph {
     ) -> Result<Self> {
         let stages = match mode {
             RemoteMemoryMode::DoNotUse => {
-                let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+                let mut planner = DistributedPlanner::<ShuffleWriterExec>::new(mode);
                 let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
                 let builder = ExecutionStageBuilder::new();
                 builder.build(shuffle_stages)?
             }
             RemoteMemoryMode::MemoryBasedShuffle => {
-                let mut planner = DistributedPlanner::<RemoteShuffleJoinExec>::new();
+                let mut planner = DistributedPlanner::<RemoteShuffleJoinExec>::new(mode);
                 let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
                 let builder = ExecutionStageBuilder::new();
                 builder.build(shuffle_stages)?
             }
             RemoteMemoryMode::FileBasedShuffle => {
-                let mut planner = DistributedPlanner::<RemoteShuffleWriterExec>::new();
+                let mut planner =
+                    DistributedPlanner::<RemoteShuffleWriterExec>::new(mode);
                 let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
                 let builder = ExecutionStageBuilder::new();

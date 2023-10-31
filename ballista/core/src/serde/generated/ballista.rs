@@ -46,6 +46,8 @@ pub struct ShuffleWriterExecNode {
     pub output_partitioning: ::core::option::Option<
         ::datafusion_proto::protobuf::PhysicalHashRepartition,
     >,
+    #[prost(enumeration = "RemoteMemoryMode", tag = "5")]
+    pub remote_memory_mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -58,8 +60,8 @@ pub struct UnresolvedShuffleExecNode {
     pub input_partition_count: u32,
     #[prost(uint32, tag = "4")]
     pub output_partition_count: u32,
-    #[prost(bool, tag = "5")]
-    pub use_remote_memory: bool,
+    #[prost(enumeration = "RemoteMemoryMode", tag = "5")]
+    pub remote_memory_mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1073,6 +1075,38 @@ pub struct RunningTaskInfo {
     pub stage_id: u32,
     #[prost(uint32, tag = "4")]
     pub partition_id: u32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RemoteMemoryMode {
+    DoNotUse = 0,
+    FileBasedShuffle = 1,
+    MemoryBasedShuffle = 2,
+    JoinOnRemote = 3,
+}
+impl RemoteMemoryMode {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            RemoteMemoryMode::DoNotUse => "do_not_use",
+            RemoteMemoryMode::FileBasedShuffle => "file_based_shuffle",
+            RemoteMemoryMode::MemoryBasedShuffle => "memory_based_shuffle",
+            RemoteMemoryMode::JoinOnRemote => "join_on_remote",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "do_not_use" => Some(Self::DoNotUse),
+            "file_based_shuffle" => Some(Self::FileBasedShuffle),
+            "memory_based_shuffle" => Some(Self::MemoryBasedShuffle),
+            "join_on_remote" => Some(Self::JoinOnRemote),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod scheduler_grpc_client {

@@ -22,6 +22,7 @@ use std::convert::TryInto;
 use crate::error::BallistaError;
 
 use crate::serde::protobuf;
+use crate::utils::RemoteMemoryMode;
 use datafusion_proto::protobuf as datafusion_protobuf;
 
 use crate::serde::scheduler::{
@@ -211,6 +212,21 @@ impl Into<protobuf::ExecutorSpecification> for ExecutorSpecification {
             .into_iter()
             .map(|r| protobuf::ExecutorResource { resource: Some(r) })
             .collect(),
+        }
+    }
+}
+
+impl Into<protobuf::RemoteMemoryMode> for RemoteMemoryMode {
+    fn into(self) -> protobuf::RemoteMemoryMode {
+        match self {
+            RemoteMemoryMode::DoNotUse => protobuf::RemoteMemoryMode::DoNotUse,
+            RemoteMemoryMode::FileBasedShuffle => {
+                protobuf::RemoteMemoryMode::FileBasedShuffle
+            }
+            RemoteMemoryMode::MemoryBasedShuffle => {
+                protobuf::RemoteMemoryMode::MemoryBasedShuffle
+            }
+            RemoteMemoryMode::JoinOnRemote => protobuf::RemoteMemoryMode::JoinOnRemote,
         }
     }
 }

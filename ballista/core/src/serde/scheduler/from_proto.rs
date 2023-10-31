@@ -37,6 +37,7 @@ use crate::serde::scheduler::{
 };
 
 use crate::serde::{protobuf, BallistaCodec};
+use crate::utils::RemoteMemoryMode;
 use protobuf::{operator_metric, NamedCount, NamedGauge, NamedTime};
 
 use super::SimpleFunctionRegistry;
@@ -59,6 +60,21 @@ impl TryInto<Action> for protobuf::Action {
             _ => Err(BallistaError::General(
                 "scheduler::from_proto(Action) invalid or missing action".to_owned(),
             )),
+        }
+    }
+}
+
+impl Into<RemoteMemoryMode> for protobuf::RemoteMemoryMode {
+    fn into(self) -> RemoteMemoryMode {
+        match self {
+            protobuf::RemoteMemoryMode::DoNotUse => RemoteMemoryMode::DoNotUse,
+            protobuf::RemoteMemoryMode::FileBasedShuffle => {
+                RemoteMemoryMode::FileBasedShuffle
+            }
+            protobuf::RemoteMemoryMode::MemoryBasedShuffle => {
+                RemoteMemoryMode::MemoryBasedShuffle
+            }
+            protobuf::RemoteMemoryMode::JoinOnRemote => RemoteMemoryMode::JoinOnRemote,
         }
     }
 }

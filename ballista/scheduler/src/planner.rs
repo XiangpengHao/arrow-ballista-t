@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ballista_core::error::{BallistaError, Result};
+use ballista_core::utils::RemoteMemoryMode;
 use ballista_core::{
     execution_plans::{
         RemoteShuffleReaderExec, ShuffleReaderExec, ShuffleWriter, UnresolvedShuffleExec,
@@ -39,13 +40,15 @@ use log::{debug, info};
 
 pub struct DistributedPlanner<SW: ShuffleWriter> {
     next_stage_id: usize,
+    remote_memory_mode: RemoteMemoryMode,
     phantom_writer: std::marker::PhantomData<SW>,
 }
 
 impl<SW: ShuffleWriter> DistributedPlanner<SW> {
-    pub fn new() -> Self {
+    pub fn new(mode: RemoteMemoryMode) -> Self {
         Self {
             next_stage_id: 0,
+            remote_memory_mode: mode,
             phantom_writer: std::marker::PhantomData,
         }
     }
@@ -53,7 +56,7 @@ impl<SW: ShuffleWriter> DistributedPlanner<SW> {
 
 impl<SW: ShuffleWriter> Default for DistributedPlanner<SW> {
     fn default() -> Self {
-        Self::new()
+        Self::new(RemoteMemoryMode::default())
     }
 }
 
@@ -74,6 +77,7 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
             self.next_stage_id(),
             new_plan,
             None,
+            self.remote_memory_mode,
         )?);
         Ok(stages)
     }
@@ -109,8 +113,12 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
+                self.remote_memory_mode,
             )?;
-            let unresolved_shuffle = create_unresolved_shuffle(shuffle_writer.as_ref());
+            let unresolved_shuffle = create_unresolved_shuffle(
+                shuffle_writer.as_ref(),
+                self.remote_memory_mode,
+            );
             stages.push(shuffle_writer);
             Ok((
                 with_new_children_if_necessary(execution_plan, vec![unresolved_shuffle])?
@@ -126,8 +134,12 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
+                self.remote_memory_mode,
             )?;
-            let unresolved_shuffle = create_unresolved_shuffle(shuffle_writer.as_ref());
+            let unresolved_shuffle = create_unresolved_shuffle(
+                shuffle_writer.as_ref(),
+                self.remote_memory_mode,
+            );
             stages.push(shuffle_writer);
             Ok((
                 with_new_children_if_necessary(execution_plan, vec![unresolved_shuffle])?
@@ -144,9 +156,12 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
                         self.next_stage_id(),
                         children[0].clone(),
                         Some(repart.partitioning().to_owned()),
+                        self.remote_memory_mode,
                     )?;
-                    let unresolved_shuffle =
-                        create_unresolved_shuffle(shuffle_writer.as_ref());
+                    let unresolved_shuffle = create_unresolved_shuffle(
+                        shuffle_writer.as_ref(),
+                        self.remote_memory_mode,
+                    );
                     stages.push(shuffle_writer);
                     Ok((unresolved_shuffle, stages))
                 }
@@ -176,8 +191,9 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
     }
 }
 
-fn create_unresolved_shuffle<SW: ShuffleWriter>(
-    shuffle_writer: &SW,
+fn create_unresolved_shuffle<ShuffleW: ShuffleWriter>(
+    shuffle_writer: &ShuffleW,
+    mode: RemoteMemoryMode,
 ) -> Arc<UnresolvedShuffleExec> {
     Arc::new(UnresolvedShuffleExec::new(
         shuffle_writer.stage_id(),
@@ -187,8 +203,25 @@ fn create_unresolved_shuffle<SW: ShuffleWriter>(
             .shuffle_output_partitioning()
             .map(|p| p.partition_count())
             .unwrap_or_else(|| shuffle_writer.output_partitioning().partition_count()),
-        SW::use_remote_memory(),
+        mode,
     ))
+}
+
+fn create_shuffle_writer<ShuffleW: ShuffleWriter>(
+    job_id: &str,
+    stage_id: usize,
+    plan: Arc<dyn ExecutionPlan>,
+    partitioning: Option<Partitioning>,
+    mode: RemoteMemoryMode,
+) -> Result<Arc<ShuffleW>> {
+    Ok(Arc::new(ShuffleW::try_new(
+        job_id.to_owned(),
+        stage_id,
+        plan,
+        "".to_owned(), // executor will decide on the work_dir path
+        partitioning,
+        mode,
+    )?))
 }
 
 /// Returns the unresolved shuffles in the execution plan
@@ -251,18 +284,27 @@ pub fn remove_unresolved_shuffles(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-            if unresolved_shuffle.use_remote_memory {
-                new_children.push(Arc::new(RemoteShuffleReaderExec::try_new(
-                    unresolved_shuffle.stage_id,
-                    relevant_locations,
-                    unresolved_shuffle.schema().clone(),
-                )?))
-            } else {
-                new_children.push(Arc::new(ShuffleReaderExec::try_new(
-                    unresolved_shuffle.stage_id,
-                    relevant_locations,
-                    unresolved_shuffle.schema().clone(),
-                )?))
+
+            match unresolved_shuffle.remote_memory_mode {
+                RemoteMemoryMode::DoNotUse => {
+                    new_children.push(Arc::new(ShuffleReaderExec::try_new(
+                        unresolved_shuffle.stage_id,
+                        relevant_locations,
+                        unresolved_shuffle.schema().clone(),
+                    )?))
+                }
+
+                RemoteMemoryMode::FileBasedShuffle
+                | RemoteMemoryMode::MemoryBasedShuffle => {
+                    new_children.push(Arc::new(RemoteShuffleReaderExec::try_new(
+                        unresolved_shuffle.stage_id,
+                        relevant_locations,
+                        unresolved_shuffle.schema().clone(),
+                    )?))
+                }
+                _ => {
+                    todo!()
+                }
             }
         } else {
             new_children.push(remove_unresolved_shuffles(child, partition_locations)?);
@@ -290,7 +332,7 @@ pub fn rollback_resolved_shuffles(
                 shuffle_reader.schema(),
                 input_partition_count,
                 output_partition_count,
-                false,
+                RemoteMemoryMode::DoNotUse,
             ));
             new_children.push(unresolved_shuffle);
         } else if let Some(shuffle_reader) =
@@ -306,7 +348,7 @@ pub fn rollback_resolved_shuffles(
                 shuffle_reader.schema(),
                 input_partition_count,
                 output_partition_count,
-                true,
+                RemoteMemoryMode::FileBasedShuffle,
             ));
             new_children.push(unresolved_shuffle);
         } else {
@@ -314,21 +356,6 @@ pub fn rollback_resolved_shuffles(
         }
     }
     Ok(with_new_children_if_necessary(stage, new_children)?.into())
-}
-
-fn create_shuffle_writer<SW: ShuffleWriter>(
-    job_id: &str,
-    stage_id: usize,
-    plan: Arc<dyn ExecutionPlan>,
-    partitioning: Option<Partitioning>,
-) -> Result<Arc<SW>> {
-    Ok(Arc::new(SW::try_new(
-        job_id.to_owned(),
-        stage_id,
-        plan,
-        "".to_owned(), // executor will decide on the work_dir path
-        partitioning,
-    )?))
 }
 
 #[cfg(test)]
@@ -380,7 +407,7 @@ mod test {
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::default();
         let job_uuid = Uuid::new_v4();
         let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
         for stage in &stages {
@@ -488,7 +515,7 @@ order by
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::default();
         let job_uuid = Uuid::new_v4();
         let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
         for stage in &stages {
@@ -640,7 +667,7 @@ order by
         let plan = session_state.optimize(&plan)?;
         let plan = session_state.create_physical_plan(&plan).await?;
 
-        let mut planner = DistributedPlanner::<ShuffleWriterExec>::new();
+        let mut planner = DistributedPlanner::<ShuffleWriterExec>::default();
         let job_uuid = Uuid::new_v4();
         let stages = planner.plan_query_stages(&job_uuid.to_string(), plan)?;
 

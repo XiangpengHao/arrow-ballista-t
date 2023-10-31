@@ -149,12 +149,18 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     input.schema().as_ref(),
                 )?;
 
+                let mode = protobuf::RemoteMemoryMode::from_i32(
+                    shuffle_writer.remote_memory_mode,
+                )
+                .unwrap();
+
                 Ok(Arc::new(ShuffleWriterExec::try_new(
                     shuffle_writer.job_id.clone(),
                     shuffle_writer.stage_id as usize,
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
+                    mode.into(),
                 )?))
             }
             PhysicalPlanType::ShuffleReader(shuffle_reader) => {
@@ -182,6 +188,11 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {
                 let schema = Arc::new(convert_required!(unresolved_shuffle.schema)?);
+                let mode = protobuf::RemoteMemoryMode::from_i32(
+                    unresolved_shuffle.remote_memory_mode,
+                )
+                .unwrap();
+
                 Ok(Arc::new(UnresolvedShuffleExec {
                     stage_id: unresolved_shuffle.stage_id as usize,
                     schema,
@@ -189,7 +200,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         as usize,
                     output_partition_count: unresolved_shuffle.output_partition_count
                         as usize,
-                    use_remote_memory: unresolved_shuffle.use_remote_memory,
+                    remote_memory_mode: mode.into(),
                 }))
             }
             PhysicalPlanType::RemoteShuffleWriter(shuffle_writer) => {
@@ -201,12 +212,18 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     input.schema().as_ref(),
                 )?;
 
+                let mode = protobuf::RemoteMemoryMode::from_i32(
+                    shuffle_writer.remote_memory_mode,
+                )
+                .unwrap();
+
                 Ok(Arc::new(RemoteShuffleWriterExec::try_new(
                     shuffle_writer.job_id.clone(),
                     shuffle_writer.stage_id as usize,
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
+                    mode.into(),
                 )?))
             }
             PhysicalPlanType::RemoteShuffleJoin(shuffle_writer) => {
@@ -218,12 +235,18 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     input.schema().as_ref(),
                 )?;
 
+                let mode = protobuf::RemoteMemoryMode::from_i32(
+                    shuffle_writer.remote_memory_mode,
+                )
+                .unwrap();
+
                 Ok(Arc::new(RemoteShuffleJoinExec::try_new(
                     shuffle_writer.job_id.clone(),
                     shuffle_writer.stage_id as usize,
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
+                    mode.into(),
                 )?))
             }
 
@@ -282,6 +305,8 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 }
             };
 
+            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
+
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::ShuffleWriter(
                     protobuf::ShuffleWriterExecNode {
@@ -289,6 +314,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         stage_id: exec.stage_id() as u32,
                         input: None,
                         output_partitioning,
+                        remote_memory_mode: mode.into(),
                     },
                 )),
             };
@@ -322,6 +348,8 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 }
             };
 
+            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
+
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::RemoteShuffleWriter(
                     protobuf::ShuffleWriterExecNode {
@@ -329,6 +357,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         stage_id: exec.stage_id() as u32,
                         input: None,
                         output_partitioning,
+                        remote_memory_mode: mode.into(),
                     },
                 )),
             };
@@ -340,8 +369,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             })?;
 
             Ok(())
-        } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleJoinExec>()
-        {
+        } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
             // note that we use shuffle_output_partitioning() rather than output_partitioning()
             // to get the true output partitioning
             let output_partitioning = match exec.shuffle_output_partitioning() {
@@ -362,6 +390,8 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 }
             };
 
+            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
+
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::RemoteShuffleWriter(
                     protobuf::ShuffleWriterExecNode {
@@ -369,6 +399,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         stage_id: exec.stage_id() as u32,
                         input: None,
                         output_partitioning,
+                        remote_memory_mode: mode.into(),
                     },
                 )),
             };
@@ -448,6 +479,8 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
 
             Ok(())
         } else if let Some(exec) = node.as_any().downcast_ref::<UnresolvedShuffleExec>() {
+            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode.into();
+
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::UnresolvedShuffle(
                     protobuf::UnresolvedShuffleExecNode {
@@ -455,7 +488,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         schema: Some(exec.schema().as_ref().try_into()?),
                         input_partition_count: exec.input_partition_count as u32,
                         output_partition_count: exec.output_partition_count as u32,
-                        use_remote_memory: exec.use_remote_memory,
+                        remote_memory_mode: mode.into(),
                     },
                 )),
             };

@@ -511,7 +511,7 @@ pub enum JoinParentSide {
     NotApplicable,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum RemoteMemoryMode {
     DoNotUse,
     FileBasedShuffle,

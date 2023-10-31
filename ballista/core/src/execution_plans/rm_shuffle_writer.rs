@@ -33,7 +33,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::utils::{self, JoinParentSide};
+use crate::utils::{self, JoinParentSide, RemoteMemoryMode};
 
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
@@ -82,6 +82,7 @@ pub struct RemoteShuffleWriterExec {
     metrics: ExecutionPlanMetricsSet,
 
     join_side: JoinParentSide,
+    remote_mode: RemoteMemoryMode,
 }
 
 impl ShuffleWriter for RemoteShuffleWriterExec {
@@ -95,8 +96,8 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
         self.stage_id
     }
 
-    fn use_remote_memory() -> bool {
-        true
+    fn remote_memory_mode(&self) -> RemoteMemoryMode {
+        self.remote_mode
     }
 
     /// Get the true output partitioning
@@ -111,6 +112,7 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
         plan: Arc<dyn ExecutionPlan>,
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
+        remote_mode: RemoteMemoryMode,
     ) -> Result<Self> {
         info!("Creating shuffle writer for stage {}", stage_id);
         Ok(Self {
@@ -121,6 +123,7 @@ impl ShuffleWriter for RemoteShuffleWriterExec {
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
             join_side: JoinParentSide::NotApplicable,
+            remote_mode,
         })
     }
 }
@@ -313,6 +316,7 @@ impl ExecutionPlan for RemoteShuffleWriterExec {
             children[0].clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
+            self.remote_mode,
         )?))
     }
 

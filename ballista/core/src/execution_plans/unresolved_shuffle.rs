@@ -27,6 +27,8 @@ use datafusion::physical_plan::{
     Statistics,
 };
 
+use crate::utils::RemoteMemoryMode;
+
 /// UnresolvedShuffleExec represents a dependency on the results of a ShuffleWriterExec node which hasn't computed yet.
 ///
 /// An ExecutionPlan that contains an UnresolvedShuffleExec isn't ready for execution. The presence of this ExecutionPlan
@@ -45,7 +47,7 @@ pub struct UnresolvedShuffleExec {
     // The partition count this node will have once it is replaced with a ShuffleReaderExec
     pub output_partition_count: usize,
 
-    pub use_remote_memory: bool,
+    pub remote_memory_mode: RemoteMemoryMode,
 }
 
 impl UnresolvedShuffleExec {
@@ -55,14 +57,14 @@ impl UnresolvedShuffleExec {
         schema: SchemaRef,
         input_partition_count: usize,
         output_partition_count: usize,
-        use_remote_memory: bool,
+        remote_memory_mode: RemoteMemoryMode,
     ) -> Self {
         Self {
             stage_id,
             schema,
             input_partition_count,
             output_partition_count,
-            use_remote_memory
+            remote_memory_mode,
         }
     }
 }

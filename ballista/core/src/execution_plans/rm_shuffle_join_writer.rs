@@ -27,7 +27,7 @@ use log::{debug, info};
 use crate::execution_plans::sm_writer::SharedMemoryByteWriter;
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
-use crate::utils::{self, JoinParentSide};
+use crate::utils::{self, JoinParentSide, RemoteMemoryMode};
 
 use super::shuffle_writer::{result_schema, ShuffleWriteMetrics};
 use super::ShuffleWriter;
@@ -52,6 +52,7 @@ pub struct RemoteShuffleJoinExec {
     metrics: ExecutionPlanMetricsSet,
 
     join_side: JoinParentSide,
+    remote_mode: RemoteMemoryMode,
 }
 
 impl ShuffleWriter for RemoteShuffleJoinExec {
@@ -64,8 +65,8 @@ impl ShuffleWriter for RemoteShuffleJoinExec {
         self.stage_id
     }
 
-    fn use_remote_memory() -> bool {
-        true
+    fn remote_memory_mode(&self) -> RemoteMemoryMode {
+        self.remote_mode
     }
 
     /// Get the true output partitioning
@@ -80,6 +81,7 @@ impl ShuffleWriter for RemoteShuffleJoinExec {
         plan: Arc<dyn ExecutionPlan>,
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
+        remote_mode: RemoteMemoryMode,
     ) -> Result<Self> {
         info!("Creating shuffle writer for stage {}", stage_id);
         Ok(Self {
@@ -90,6 +92,7 @@ impl ShuffleWriter for RemoteShuffleJoinExec {
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
             join_side: JoinParentSide::NotApplicable,
+            remote_mode,
         })
     }
 }
@@ -129,6 +132,7 @@ impl ExecutionPlan for RemoteShuffleJoinExec {
             children[0].clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
+            self.remote_mode,
         )?))
     }
 

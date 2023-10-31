@@ -206,6 +206,7 @@ mod test {
     use arrow::record_batch::RecordBatch;
     use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
     use ballista_core::serde::protobuf::ExecutorRegistration;
+    use ballista_core::utils::RemoteMemoryMode;
     use datafusion::execution::context::TaskContext;
 
     use crate::execution_engine::DefaultQueryStageExec;
@@ -319,6 +320,7 @@ mod test {
             Arc::new(NeverendingOperator),
             work_dir.clone(),
             None,
+            RemoteMemoryMode::default(),
         )
         .expect("creating shuffle writer");
 

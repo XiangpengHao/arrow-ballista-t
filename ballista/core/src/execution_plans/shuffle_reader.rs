@@ -26,6 +26,7 @@ use std::task::{Context, Poll};
 
 use crate::client::BallistaClient;
 use crate::serde::scheduler::{PartitionLocation, PartitionStats};
+use crate::utils::RemoteMemoryMode;
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
@@ -64,6 +65,8 @@ pub struct ShuffleReaderExec {
     pub schema: SchemaRef,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
+
+    remote_mode: RemoteMemoryMode,
 }
 
 impl ShuffleReaderExec {
@@ -72,13 +75,19 @@ impl ShuffleReaderExec {
         stage_id: usize,
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
+        remote_mode: RemoteMemoryMode,
     ) -> Result<Self> {
         Ok(Self {
             stage_id,
             schema,
             partition,
             metrics: ExecutionPlanMetricsSet::new(),
+            remote_mode,
         })
+    }
+
+    pub fn remote_memory_mode(&self) -> RemoteMemoryMode {
+        self.remote_mode
     }
 }
 
@@ -113,6 +122,7 @@ impl ExecutionPlan for ShuffleReaderExec {
             self.stage_id,
             self.partition.clone(),
             self.schema.clone(),
+            self.remote_mode,
         )?))
     }
 
@@ -144,7 +154,7 @@ impl ExecutionPlan for ShuffleReaderExec {
         partition_locations.shuffle(&mut thread_rng());
 
         let response_receiver =
-            send_fetch_partitions(partition_locations, max_request_num);
+            send_fetch_partitions(partition_locations, max_request_num, self.remote_mode);
 
         let result = RecordBatchStreamAdapter::new(
             Arc::new(self.schema.as_ref().clone()),
@@ -175,7 +185,12 @@ impl DisplayAs for ShuffleReaderExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(f, "ShuffleReaderExec: partitions={}", self.partition.len())
+                write!(
+                    f,
+                    "ShuffleReaderExec: part={}, mode={}",
+                    self.partition.len(),
+                    self.remote_memory_mode()
+                )
             }
         }
     }
@@ -270,8 +285,52 @@ impl Stream for AbortableReceiverStream {
             .map_err(|e| ArrowError::ExternalError(Box::new(e)))
     }
 }
-
 fn send_fetch_partitions(
+    partition_locations: Vec<PartitionLocation>,
+    max_request_num: usize,
+    mode: RemoteMemoryMode,
+) -> AbortableReceiverStream {
+    match mode {
+        RemoteMemoryMode::DoNotUse => {
+            send_fetch_partitions_from_disk(partition_locations, max_request_num)
+        }
+        RemoteMemoryMode::FileBasedShuffle => {
+            send_fetch_partitions_from_remote_memory(partition_locations, max_request_num)
+        }
+        _ => {
+            unreachable!()
+        }
+    }
+}
+
+fn send_fetch_partitions_from_remote_memory(
+    partition_locations: Vec<PartitionLocation>,
+    max_request_num: usize,
+) -> AbortableReceiverStream {
+    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
+    let mut join_handles = vec![];
+
+    info!(
+        "fetching {} partitions from remote memory",
+        partition_locations.len()
+    );
+
+    // keep local shuffle files reading in serial order for memory control.
+    let response_sender_c = response_sender.clone();
+    let join_handle = tokio::spawn(async move {
+        for p in partition_locations {
+            let r = fetch_partition_local(&p).await;
+            if let Err(e) = response_sender_c.send(r).await {
+                error!("Fail to send response event to the channel due to {}", e);
+            }
+        }
+    });
+    join_handles.push(join_handle);
+
+    AbortableReceiverStream::create(response_receiver, join_handles)
+}
+
+fn send_fetch_partitions_from_disk(
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
 ) -> AbortableReceiverStream {
@@ -523,6 +582,7 @@ mod tests {
             input_stage_id,
             vec![partitions],
             Arc::new(schema),
+            RemoteMemoryMode::default(),
         )?;
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
@@ -613,7 +673,7 @@ mod tests {
         );
 
         let response_receiver =
-            send_fetch_partitions(partition_locations, max_request_num);
+            send_fetch_partitions_from_disk(partition_locations, max_request_num);
 
         let stream = RecordBatchStreamAdapter::new(
             Arc::new(schema),

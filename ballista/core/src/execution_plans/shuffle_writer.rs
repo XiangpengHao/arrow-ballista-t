@@ -163,6 +163,12 @@ impl ShuffleWriterExec {
         let mode = self.remote_mode;
 
         let path = match mode {
+            RemoteMemoryMode::DoNotUse => {
+                let mut path = PathBuf::from(&self.work_dir);
+                path.push(&self.job_id);
+                path.push(&format!("{}", self.stage_id));
+                path
+            }
             RemoteMemoryMode::FileBasedShuffle => {
                 let mut identifier = PathBuf::from("/shm-");
                 identifier.push(&self.job_id);
@@ -170,10 +176,7 @@ impl ShuffleWriterExec {
                 identifier
             }
             _ => {
-                let mut path = PathBuf::from(&self.work_dir);
-                path.push(&self.job_id);
-                path.push(&format!("{}", self.stage_id));
-                path
+                unreachable!()
             }
         };
 
@@ -610,8 +613,9 @@ impl DisplayAs for ShuffleWriterExec {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
-                    "ShuffleWriterExec: {:?}",
-                    self.shuffle_output_partitioning
+                    "ShuffleWriterExec: {:?}, mode: {:?}",
+                    self.shuffle_output_partitioning,
+                    self.remote_memory_mode()
                 )
             }
         }

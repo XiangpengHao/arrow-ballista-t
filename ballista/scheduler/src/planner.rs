@@ -23,9 +23,7 @@ use std::sync::Arc;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::utils::RemoteMemoryMode;
 use ballista_core::{
-    execution_plans::{
-        RemoteShuffleReaderExec, ShuffleReaderExec, ShuffleWriter, UnresolvedShuffleExec,
-    },
+    execution_plans::{ShuffleReaderExec, ShuffleWriter, UnresolvedShuffleExec},
     serde::scheduler::PartitionLocation,
 };
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -286,20 +284,14 @@ pub fn remove_unresolved_shuffles(
             );
 
             match unresolved_shuffle.remote_memory_mode {
-                RemoteMemoryMode::DoNotUse => {
+                RemoteMemoryMode::DoNotUse
+                | RemoteMemoryMode::FileBasedShuffle
+                | RemoteMemoryMode::MemoryBasedShuffle => {
                     new_children.push(Arc::new(ShuffleReaderExec::try_new(
                         unresolved_shuffle.stage_id,
                         relevant_locations,
                         unresolved_shuffle.schema().clone(),
-                    )?))
-                }
-
-                RemoteMemoryMode::FileBasedShuffle
-                | RemoteMemoryMode::MemoryBasedShuffle => {
-                    new_children.push(Arc::new(RemoteShuffleReaderExec::try_new(
-                        unresolved_shuffle.stage_id,
-                        relevant_locations,
-                        unresolved_shuffle.schema().clone(),
+                        unresolved_shuffle.remote_memory_mode,
                     )?))
                 }
                 _ => {
@@ -332,23 +324,7 @@ pub fn rollback_resolved_shuffles(
                 shuffle_reader.schema(),
                 input_partition_count,
                 output_partition_count,
-                RemoteMemoryMode::DoNotUse,
-            ));
-            new_children.push(unresolved_shuffle);
-        } else if let Some(shuffle_reader) =
-            child.as_any().downcast_ref::<RemoteShuffleReaderExec>()
-        {
-            let partition_locations = &shuffle_reader.partition;
-            let output_partition_count = partition_locations.len();
-            let input_partition_count = partition_locations[0].len();
-            let stage_id = partition_locations[0][0].partition_id.stage_id;
-
-            let unresolved_shuffle = Arc::new(UnresolvedShuffleExec::new(
-                stage_id,
-                shuffle_reader.schema(),
-                input_partition_count,
-                output_partition_count,
-                RemoteMemoryMode::FileBasedShuffle,
+                shuffle_reader.remote_memory_mode(),
             ));
             new_children.push(unresolved_shuffle);
         } else {

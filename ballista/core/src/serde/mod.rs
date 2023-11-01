@@ -40,8 +40,8 @@ use std::sync::Arc;
 use std::{convert::TryInto, io::Cursor};
 
 use crate::execution_plans::{
-    RemoteShuffleJoinExec, RemoteShuffleReaderExec, RemoteShuffleWriterExec,
-    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
+    UnresolvedShuffleExec,
 };
 use crate::serde::protobuf::ballista_physical_plan_node::PhysicalPlanType;
 use crate::serde::scheduler::PartitionLocation;
@@ -182,8 +182,18 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let shuffle_reader =
-                    ShuffleReaderExec::try_new(stage_id, partition_location, schema)?;
+
+                let mode = protobuf::RemoteMemoryMode::from_i32(
+                    shuffle_reader.remote_memory_mode,
+                )
+                .unwrap();
+
+                let shuffle_reader = ShuffleReaderExec::try_new(
+                    stage_id,
+                    partition_location,
+                    schema,
+                    mode.into(),
+                )?;
                 Ok(Arc::new(shuffle_reader))
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {
@@ -203,29 +213,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     remote_memory_mode: mode.into(),
                 }))
             }
-            PhysicalPlanType::RemoteShuffleWriter(shuffle_writer) => {
-                let input = inputs[0].clone();
 
-                let shuffle_output_partitioning = parse_protobuf_hash_partitioning(
-                    shuffle_writer.output_partitioning.as_ref(),
-                    registry,
-                    input.schema().as_ref(),
-                )?;
-
-                let mode = protobuf::RemoteMemoryMode::from_i32(
-                    shuffle_writer.remote_memory_mode,
-                )
-                .unwrap();
-
-                Ok(Arc::new(RemoteShuffleWriterExec::try_new(
-                    shuffle_writer.job_id.clone(),
-                    shuffle_writer.stage_id as usize,
-                    input,
-                    "".to_string(), // this is intentional but hacky - the executor will fill this in
-                    shuffle_output_partitioning,
-                    mode.into(),
-                )?))
-            }
             PhysicalPlanType::RemoteShuffleJoin(shuffle_writer) => {
                 let input = inputs[0].clone();
 
@@ -248,33 +236,6 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     shuffle_output_partitioning,
                     mode.into(),
                 )?))
-            }
-
-            PhysicalPlanType::RemoteShuffleReader(shuffle_reader) => {
-                let stage_id = shuffle_reader.stage_id as usize;
-                let schema = Arc::new(convert_required!(shuffle_reader.schema)?);
-                let partition_location: Vec<Vec<PartitionLocation>> = shuffle_reader
-                    .partition
-                    .iter()
-                    .map(|p| {
-                        p.location
-                            .iter()
-                            .map(|l| {
-                                l.clone().try_into().map_err(|e| {
-                                    DataFusionError::Internal(format!(
-                                        "Fail to get partition location due to {e:?}"
-                                    ))
-                                })
-                            })
-                            .collect::<Result<Vec<_>, _>>()
-                    })
-                    .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let shuffle_reader = RemoteShuffleReaderExec::try_new(
-                    stage_id,
-                    partition_location,
-                    schema,
-                )?;
-                Ok(Arc::new(shuffle_reader))
             }
         }
     }
@@ -326,49 +287,6 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             })?;
 
             Ok(())
-        } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleWriterExec>()
-        {
-            // note that we use shuffle_output_partitioning() rather than output_partitioning()
-            // to get the true output partitioning
-            let output_partitioning = match exec.shuffle_output_partitioning() {
-                Some(Partitioning::Hash(exprs, partition_count)) => {
-                    Some(datafusion_proto::protobuf::PhysicalHashRepartition {
-                        hash_expr: exprs
-                            .iter()
-                            .map(|expr| expr.clone().try_into())
-                            .collect::<Result<Vec<_>, DataFusionError>>()?,
-                        partition_count: *partition_count as u64,
-                    })
-                }
-                None => None,
-                other => {
-                    return Err(DataFusionError::Internal(format!(
-                        "physical_plan::to_proto() invalid partitioning for ShuffleWriterExec: {other:?}"
-                    )));
-                }
-            };
-
-            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
-
-            let proto = protobuf::BallistaPhysicalPlanNode {
-                physical_plan_type: Some(PhysicalPlanType::RemoteShuffleWriter(
-                    protobuf::ShuffleWriterExecNode {
-                        job_id: exec.job_id().to_string(),
-                        stage_id: exec.stage_id() as u32,
-                        input: None,
-                        output_partitioning,
-                        remote_memory_mode: mode.into(),
-                    },
-                )),
-            };
-
-            proto.encode(buf).map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "failed to encode shuffle writer execution plan: {e:?}"
-                ))
-            })?;
-
-            Ok(())
         } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
             // note that we use shuffle_output_partitioning() rather than output_partitioning()
             // to get the true output partitioning
@@ -393,7 +311,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
 
             let proto = protobuf::BallistaPhysicalPlanNode {
-                physical_plan_type: Some(PhysicalPlanType::RemoteShuffleWriter(
+                physical_plan_type: Some(PhysicalPlanType::ShuffleWriter(
                     protobuf::ShuffleWriterExecNode {
                         job_id: exec.job_id().to_string(),
                         stage_id: exec.stage_id() as u32,
@@ -428,52 +346,20 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         .collect::<Result<Vec<_>, _>>()?,
                 });
             }
+            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::ShuffleReader(
                     protobuf::ShuffleReaderExecNode {
                         stage_id,
                         partition,
                         schema: Some(exec.schema().as_ref().try_into()?),
+                        remote_memory_mode: mode.into(),
                     },
                 )),
             };
             proto.encode(buf).map_err(|e| {
                 DataFusionError::Internal(format!(
                     "failed to encode shuffle reader execution plan: {e:?}"
-                ))
-            })?;
-
-            Ok(())
-        } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleReaderExec>()
-        {
-            let stage_id = exec.stage_id as u32;
-            let mut partition = vec![];
-            for location in &exec.partition {
-                partition.push(protobuf::ShuffleReaderPartition {
-                    location: location
-                        .iter()
-                        .map(|l| {
-                            l.clone().try_into().map_err(|e| {
-                                DataFusionError::Internal(format!(
-                                    "Fail to get partition location due to {e:?}"
-                                ))
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                });
-            }
-            let proto = protobuf::BallistaPhysicalPlanNode {
-                physical_plan_type: Some(PhysicalPlanType::RemoteShuffleReader(
-                    protobuf::ShuffleReaderExecNode {
-                        stage_id,
-                        partition,
-                        schema: Some(exec.schema().as_ref().try_into()?),
-                    },
-                )),
-            };
-            proto.encode(buf).map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "failed to encode remote shuffle reader execution plan: {e:?}"
                 ))
             })?;
 

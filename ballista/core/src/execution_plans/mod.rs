@@ -22,8 +22,6 @@
 mod distributed_query;
 mod rm_shuffle_join_reader;
 mod rm_shuffle_join_writer;
-mod rm_shuffle_reader;
-mod rm_shuffle_writer;
 mod shuffle_reader;
 mod shuffle_writer;
 mod sm_writer;
@@ -33,8 +31,6 @@ mod utils;
 use datafusion::error::Result;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 pub use rm_shuffle_join_writer::RemoteShuffleJoinExec;
-pub use rm_shuffle_reader::RemoteShuffleReaderExec;
-pub use rm_shuffle_writer::RemoteShuffleWriterExec;
 use std::sync::Arc;
 
 pub use distributed_query::DistributedQueryExec;

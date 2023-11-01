@@ -20,8 +20,8 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    RemoteShuffleJoinExec, RemoteShuffleReaderExec, RemoteShuffleWriterExec,
-    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RemoteShuffleJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
+    UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -197,16 +197,6 @@ impl<'a> StagePlanWriter<'a> {
         let display_name = get_operator_name(plan, self.metrics.get(self.metrics_idx));
 
         if let Some(reader) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
-            for part in &reader.partition {
-                for loc in part {
-                    state
-                        .readers
-                        .insert(node_name.clone(), loc.partition_id.stage_id);
-                }
-            }
-        } else if let Some(reader) =
-            plan.as_any().downcast_ref::<RemoteShuffleReaderExec>()
-        {
             for part in &reader.partition {
                 for loc in part {
                     state
@@ -417,31 +407,19 @@ filter_expr={}
         format!("UnresolvedShuffleExec [stage_id={}]", exec.stage_id)
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
         format!(
-            "ShuffleReader [{} partitions]
+            "ShuffleReader [part: {}, mode: {} ]
             {}",
             exec.partition.len(),
-            metric_str
-        )
-    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleReaderExec>() {
-        format!(
-            "RemoteShuffleReader [{} partitions]
-            {}",
-            exec.partition.len(),
+            exec.remote_memory_mode(),
             metric_str
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
         format!(
-            "ShuffleWriter [{}]
+            "ShuffleWriter [part: {}, mode: {}]
             {}",
             format_optioned_partition(exec.shuffle_output_partitioning()),
+            exec.remote_memory_mode(),
             metric_str,
-        )
-    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleWriterExec>() {
-        format!(
-            "RemoteShuffleWriter [{}]
-            {}",
-            format_optioned_partition(exec.shuffle_output_partitioning()),
-            metric_str
         )
     } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
         format!(

@@ -34,9 +34,7 @@ message BallistaPhysicalPlanNode {
     ShuffleWriterExecNode shuffle_writer = 1;
     ShuffleReaderExecNode shuffle_reader = 2;
     UnresolvedShuffleExecNode unresolved_shuffle = 3;
-    ShuffleWriterExecNode remote_shuffle_writer = 4;
-    ShuffleReaderExecNode remote_shuffle_reader = 5;
-    ShuffleWriterExecNode remote_shuffle_join = 6;
+    ShuffleWriterExecNode remote_shuffle_join = 4;
   }
 }
 
@@ -69,6 +67,7 @@ message ShuffleReaderExecNode {
   repeated ShuffleReaderPartition partition = 1;
   datafusion.Schema schema = 2;
   uint32 stage_id = 3;
+  RemoteMemoryMode remote_memory_mode = 4;
 }
 
 message ShuffleReaderPartition {

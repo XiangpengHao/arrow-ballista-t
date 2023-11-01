@@ -34,7 +34,6 @@ message BallistaPhysicalPlanNode {
     ShuffleWriterExecNode shuffle_writer = 1;
     ShuffleReaderExecNode shuffle_reader = 2;
     UnresolvedShuffleExecNode unresolved_shuffle = 3;
-    ShuffleWriterExecNode remote_shuffle_join = 4;
   }
 }
 

@@ -40,8 +40,7 @@ use std::sync::Arc;
 use std::{convert::TryInto, io::Cursor};
 
 use crate::execution_plans::{
-    RemoteShuffleJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
-    UnresolvedShuffleExec,
+    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use crate::serde::protobuf::ballista_physical_plan_node::PhysicalPlanType;
 use crate::serde::scheduler::PartitionLocation;
@@ -213,30 +212,6 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     remote_memory_mode: mode.into(),
                 }))
             }
-
-            PhysicalPlanType::RemoteShuffleJoin(shuffle_writer) => {
-                let input = inputs[0].clone();
-
-                let shuffle_output_partitioning = parse_protobuf_hash_partitioning(
-                    shuffle_writer.output_partitioning.as_ref(),
-                    registry,
-                    input.schema().as_ref(),
-                )?;
-
-                let mode = protobuf::RemoteMemoryMode::from_i32(
-                    shuffle_writer.remote_memory_mode,
-                )
-                .unwrap();
-
-                Ok(Arc::new(RemoteShuffleJoinExec::try_new(
-                    shuffle_writer.job_id.clone(),
-                    shuffle_writer.stage_id as usize,
-                    input,
-                    "".to_string(), // this is intentional but hacky - the executor will fill this in
-                    shuffle_output_partitioning,
-                    mode.into(),
-                )?))
-            }
         }
     }
 
@@ -246,48 +221,6 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
         buf: &mut Vec<u8>,
     ) -> Result<(), DataFusionError> {
         if let Some(exec) = node.as_any().downcast_ref::<ShuffleWriterExec>() {
-            // note that we use shuffle_output_partitioning() rather than output_partitioning()
-            // to get the true output partitioning
-            let output_partitioning = match exec.shuffle_output_partitioning() {
-                Some(Partitioning::Hash(exprs, partition_count)) => {
-                    Some(datafusion_proto::protobuf::PhysicalHashRepartition {
-                        hash_expr: exprs
-                            .iter()
-                            .map(|expr| expr.clone().try_into())
-                            .collect::<Result<Vec<_>, DataFusionError>>()?,
-                        partition_count: *partition_count as u64,
-                    })
-                }
-                None => None,
-                other => {
-                    return Err(DataFusionError::Internal(format!(
-                        "physical_plan::to_proto() invalid partitioning for ShuffleWriterExec: {other:?}"
-                    )));
-                }
-            };
-
-            let mode: protobuf::RemoteMemoryMode = exec.remote_memory_mode().into();
-
-            let proto = protobuf::BallistaPhysicalPlanNode {
-                physical_plan_type: Some(PhysicalPlanType::ShuffleWriter(
-                    protobuf::ShuffleWriterExecNode {
-                        job_id: exec.job_id().to_string(),
-                        stage_id: exec.stage_id() as u32,
-                        input: None,
-                        output_partitioning,
-                        remote_memory_mode: mode.into(),
-                    },
-                )),
-            };
-
-            proto.encode(buf).map_err(|e| {
-                DataFusionError::Internal(format!(
-                    "failed to encode shuffle writer execution plan: {e:?}"
-                ))
-            })?;
-
-            Ok(())
-        } else if let Some(exec) = node.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
             // note that we use shuffle_output_partitioning() rather than output_partitioning()
             // to get the true output partitioning
             let output_partitioning = match exec.shuffle_output_partitioning() {

@@ -17,11 +17,9 @@
 
 use arrow::datatypes::SchemaRef;
 use async_trait::async_trait;
-use ballista_core::execution_plans::{
-    RemoteShuffleJoinExec, ShuffleWriter, ShuffleWriterExec,
-};
+use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
 use ballista_core::serde::protobuf::ShuffleWritePartition;
-use ballista_core::utils::{self, RemoteMemoryMode};
+use ballista_core::utils;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::metrics::MetricsSet;
@@ -77,22 +75,9 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
-                RemoteMemoryMode::DoNotUse,
+                shuffle_writer.remote_memory_mode(),
             )?;
 
-            Ok(Arc::new(DefaultQueryStageExec::new(exec)))
-        } else if let Some(shuffle_writer) =
-            plan.as_any().downcast_ref::<RemoteShuffleJoinExec>()
-        {
-            // recreate the shuffle writer with the correct working directory
-            let exec = RemoteShuffleJoinExec::try_new(
-                job_id,
-                stage_id,
-                plan.children()[0].clone(),
-                work_dir.to_string(),
-                shuffle_writer.shuffle_output_partitioning().cloned(),
-                RemoteMemoryMode::MemoryBasedShuffle,
-            )?;
             Ok(Arc::new(DefaultQueryStageExec::new(exec)))
         } else {
             Err(DataFusionError::Internal(
@@ -116,27 +101,6 @@ impl<ShuffleW: ShuffleWriter> DefaultQueryStageExec<ShuffleW> {
 
 #[async_trait]
 impl QueryStageExecutor for DefaultQueryStageExec<ShuffleWriterExec> {
-    async fn execute_query_stage(
-        &self,
-        input_partition: usize,
-        context: Arc<TaskContext>,
-    ) -> Result<Vec<ShuffleWritePartition>> {
-        self.shuffle_writer
-            .execute_shuffle_write(input_partition, context)
-            .await
-    }
-
-    fn schema(&self) -> SchemaRef {
-        self.shuffle_writer.schema()
-    }
-
-    fn collect_plan_metrics(&self) -> Vec<MetricsSet> {
-        utils::collect_plan_metrics(&self.shuffle_writer)
-    }
-}
-
-#[async_trait]
-impl QueryStageExecutor for DefaultQueryStageExec<RemoteShuffleJoinExec> {
     async fn execute_query_stage(
         &self,
         input_partition: usize,

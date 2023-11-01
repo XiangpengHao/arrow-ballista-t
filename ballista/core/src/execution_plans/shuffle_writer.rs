@@ -29,7 +29,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::execution_plans::sm_writer::{IPCWriter, SharedMemoryFileWriter};
+use crate::execution_plans::sm_writer::{
+    IPCWriter, SharedMemoryByteWriter, SharedMemoryFileWriter,
+};
 use crate::utils::{self, RemoteMemoryMode};
 
 use crate::serde::protobuf::ShuffleWritePartition;
@@ -169,7 +171,7 @@ impl ShuffleWriterExec {
                 path.push(&format!("{}", self.stage_id));
                 path
             }
-            RemoteMemoryMode::FileBasedShuffle => {
+            RemoteMemoryMode::FileBasedShuffle | RemoteMemoryMode::MemoryBasedShuffle => {
                 let mut identifier = PathBuf::from("/shm-");
                 identifier.push(&self.job_id);
                 identifier.push(&format!("-{}", self.stage_id));
@@ -195,6 +197,17 @@ impl ShuffleWriterExec {
                 }
                 RemoteMemoryMode::FileBasedShuffle => {
                     execute_file_based_remote_shuffle_write(
+                        path,
+                        plan,
+                        output_partitioning,
+                        write_metrics,
+                        input_partition,
+                        context,
+                    )
+                    .await
+                }
+                RemoteMemoryMode::MemoryBasedShuffle => {
+                    execute_memory_based_remote_shuffle_write(
                         path,
                         plan,
                         output_partitioning,
@@ -473,6 +486,151 @@ fn execute_conventional_shuffle_write(
                             part_locs.push(ShuffleWritePartition {
                                 partition_id: i as u64,
                                 path: w.path().to_string_lossy().to_string(),
+                                num_batches: w.num_batches,
+                                num_rows: w.num_rows,
+                                num_bytes: w.num_bytes,
+                            });
+                        }
+                        None => {}
+                    }
+                }
+                log::warn!("shuffle write metrics: {:?}", write_metrics);
+                Ok(part_locs)
+            }
+
+            _ => Err(DataFusionError::Execution(
+                "Invalid shuffle partitioning scheme".to_owned(),
+            )),
+        }
+    }
+}
+
+fn execute_memory_based_remote_shuffle_write(
+    mut identifier: PathBuf,
+    plan: Arc<dyn ExecutionPlan>,
+    output_partitioning: Option<Partitioning>,
+    write_metrics: ShuffleWriteMetrics,
+    input_partition: usize,
+    context: Arc<TaskContext>,
+) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
+    async move {
+        let now = Instant::now();
+        let mut stream = plan.execute(input_partition, context)?;
+
+        match output_partitioning {
+            None => {
+                let timer = write_metrics.write_time.timer();
+                identifier.push(&format!("{input_partition}"));
+                identifier.push("data.arrow");
+                let path = identifier.to_str().unwrap();
+
+                debug!("Writing results to {}", path);
+                // stream results to disk
+                let stats = utils::write_stream_to_disk(
+                    &mut stream,
+                    path,
+                    &write_metrics.write_time,
+                    false,
+                )
+                .await
+                .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
+
+                write_metrics
+                    .input_rows
+                    .add(stats.num_rows.unwrap_or(0) as usize);
+                write_metrics
+                    .output_rows
+                    .add(stats.num_rows.unwrap_or(0) as usize);
+                timer.done();
+
+                info!(
+                    "Executed partition {} in {} seconds. Statistics: {}",
+                    input_partition,
+                    now.elapsed().as_secs(),
+                    stats
+                );
+
+                Ok(vec![ShuffleWritePartition {
+                    partition_id: input_partition as u64,
+                    path: path.to_owned(),
+                    num_batches: stats.num_batches.unwrap_or(0),
+                    num_rows: stats.num_rows.unwrap_or(0),
+                    num_bytes: stats.num_bytes.unwrap_or(0),
+                }])
+            }
+
+            Some(Partitioning::Hash(exprs, num_output_partitions)) => {
+                // we won't necessary produce output for every possible partition, so we
+                // create writers on demand
+                let mut writers: Vec<Option<SharedMemoryByteWriter>> = vec![];
+                for _ in 0..num_output_partitions {
+                    writers.push(None);
+                }
+
+                let mut partitioner = BatchPartitioner::try_new(
+                    Partitioning::Hash(exprs, num_output_partitions),
+                    write_metrics.repart_time.clone(),
+                )?;
+
+                // TODO: we need a real cardinality estimation here.
+                let estimated_size_per_partition = 1024 * 1024 * 512;
+
+                while let Some(result) = stream.next().await {
+                    let input_batch = result?;
+
+                    write_metrics.input_rows.add(input_batch.num_rows());
+
+                    partitioner.partition(
+                        input_batch,
+                        |output_partition, output_batch| {
+                            // partition func in datafusion make sure not write empty output_batch.
+                            let timer = write_metrics.write_time.timer();
+                            match &mut writers[output_partition] {
+                                Some(w) => {
+                                    w.write(&output_batch)?;
+                                }
+                                None => {
+                                    let mut idt = identifier.clone();
+                                    idt.push(&format!("-{output_partition}"));
+
+                                    idt.push(&format!("-data-{input_partition}.arrow"));
+                                    debug!("Writing results to {:?}", idt);
+
+                                    let mut writer = SharedMemoryByteWriter::new(
+                                        idt.to_str().unwrap().to_string(),
+                                        stream.schema().as_ref(),
+                                        estimated_size_per_partition,
+                                    )?;
+
+                                    writer.write(&output_batch)?;
+                                    writers[output_partition] = Some(writer);
+                                }
+                            }
+                            write_metrics.output_rows.add(output_batch.num_rows());
+                            timer.done();
+                            Ok(())
+                        },
+                    )?;
+                }
+
+                let mut part_locs = vec![];
+
+                for (i, w) in writers.iter_mut().enumerate() {
+                    match w {
+                        Some(w) => {
+                            w.finish()?;
+                            debug!(
+                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
+                                i,
+                                w.identifier(),
+                                w.num_batches,
+                                w.num_rows,
+                                w.num_bytes
+                            );
+
+                            part_locs.push(ShuffleWritePartition {
+                                partition_id: i as u64,
+                                path: w.identifier().to_owned(),
                                 num_batches: w.num_batches,
                                 num_rows: w.num_rows,
                                 num_bytes: w.num_bytes,

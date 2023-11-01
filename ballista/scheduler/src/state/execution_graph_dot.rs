@@ -20,8 +20,7 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    RemoteShuffleJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
-    UnresolvedShuffleExec,
+    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -420,13 +419,6 @@ filter_expr={}
             format_optioned_partition(exec.shuffle_output_partitioning()),
             exec.remote_memory_mode(),
             metric_str,
-        )
-    } else if let Some(exec) = plan.as_any().downcast_ref::<RemoteShuffleJoinExec>() {
-        format!(
-            "RemoteShuffleJoinWriter [{}]
-            {}",
-            format_optioned_partition(exec.shuffle_output_partitioning()),
-            metric_str
         )
     } else if plan.as_any().downcast_ref::<MemoryExec>().is_some() {
         "MemoryExec".to_string()

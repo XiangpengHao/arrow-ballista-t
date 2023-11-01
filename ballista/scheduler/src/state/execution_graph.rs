@@ -28,7 +28,7 @@ use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::execution_plans::{
-    RemoteShuffleJoinExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
@@ -146,20 +146,16 @@ impl ExecutionGraph {
         mode: RemoteMemoryMode,
     ) -> Result<Self> {
         let stages = match mode {
-            RemoteMemoryMode::DoNotUse | RemoteMemoryMode::FileBasedShuffle => {
+            RemoteMemoryMode::DoNotUse
+            | RemoteMemoryMode::FileBasedShuffle
+            | RemoteMemoryMode::MemoryBasedShuffle => {
                 let mut planner = DistributedPlanner::<ShuffleWriterExec>::new(mode);
                 let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
                 let builder = ExecutionStageBuilder::new();
                 builder.build(shuffle_stages)?
             }
-            RemoteMemoryMode::MemoryBasedShuffle => {
-                let mut planner = DistributedPlanner::<RemoteShuffleJoinExec>::new(mode);
-                let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-                let builder = ExecutionStageBuilder::new();
-                builder.build(shuffle_stages)?
-            }
             RemoteMemoryMode::JoinOnRemote => {
                 todo!("not implemented yet");
             }
@@ -1417,10 +1413,6 @@ impl ExecutionPlanVisitor for ExecutionStageBuilder {
         plan: &dyn ExecutionPlan,
     ) -> std::result::Result<bool, Self::Error> {
         if let Some(shuffle_write) = plan.as_any().downcast_ref::<ShuffleWriterExec>() {
-            self.current_stage_id = shuffle_write.stage_id();
-        } else if let Some(shuffle_write) =
-            plan.as_any().downcast_ref::<RemoteShuffleJoinExec>()
-        {
             self.current_stage_id = shuffle_write.stage_id();
         } else if let Some(unresolved_shuffle) =
             plan.as_any().downcast_ref::<UnresolvedShuffleExec>()

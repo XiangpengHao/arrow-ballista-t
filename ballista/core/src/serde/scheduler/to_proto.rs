@@ -216,6 +216,7 @@ impl Into<protobuf::ExecutorSpecification> for ExecutorSpecification {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<protobuf::RemoteMemoryMode> for RemoteMemoryMode {
     fn into(self) -> protobuf::RemoteMemoryMode {
         match self {

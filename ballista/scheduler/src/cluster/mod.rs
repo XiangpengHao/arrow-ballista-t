@@ -121,7 +121,10 @@ pub trait ClusterState: Send + Sync + 'static {
     /// available task slots.
     ///
     /// This operations should be atomic. Either all reservations are cancelled or none are
-    fn unbind_tasks(&self, executor_slots: Vec<ExecutorSlot>) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn unbind_tasks(
+        &self,
+        executor_slots: Vec<ExecutorSlot>,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 
     /// Register a new executor in the cluster.
     fn register_executor(
@@ -140,7 +143,10 @@ pub trait ClusterState: Send + Sync + 'static {
     fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat);
 
     /// Remove the executor from the cluster
-    fn remove_executor(&self, executor_id: &str) -> impl std::future::Future<Output = Result<()>> + Send;
+    fn remove_executor(
+        &self,
+        executor_id: &str,
+    ) -> impl std::future::Future<Output = Result<()>> + Send;
 
     /// Return a map of the last seen heartbeat for all active executors
     fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat>;

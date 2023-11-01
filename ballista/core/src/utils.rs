@@ -509,18 +509,13 @@ pub enum JoinParentSide {
     NotApplicable,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum RemoteMemoryMode {
+    #[default]
     DoNotUse,
     FileBasedShuffle,
     MemoryBasedShuffle,
     JoinOnRemote,
-}
-
-impl Default for RemoteMemoryMode {
-    fn default() -> Self {
-        RemoteMemoryMode::DoNotUse
-    }
 }
 
 impl Display for RemoteMemoryMode {

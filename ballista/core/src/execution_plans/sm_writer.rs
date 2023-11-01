@@ -411,7 +411,7 @@ impl IPCWriter {
     /// Finish the writer
     pub fn finish(&mut self) -> Result<()> {
         self.writer.finish()?;
-        advise_no_cache(&self.writer.get_ref());
+        advise_no_cache(self.writer.get_ref());
         Ok(())
     }
 

@@ -83,6 +83,7 @@ impl<ShuffleW: ShuffleWriter> DistributedPlanner<ShuffleW> {
     /// Returns a potentially modified version of the input execution_plan along with the resulting query stages.
     /// This function is needed because the input execution_plan might need to be modified, but it might not hold a
     /// complete query stage (its parent might also belong to the same stage)
+    #[allow(clippy::type_complexity)]
     fn plan_query_stages_internal<'a>(
         &'a mut self,
         job_id: &'a str,

@@ -64,6 +64,7 @@ impl TryInto<Action> for protobuf::Action {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<RemoteMemoryMode> for protobuf::RemoteMemoryMode {
     fn into(self) -> RemoteMemoryMode {
         match self {

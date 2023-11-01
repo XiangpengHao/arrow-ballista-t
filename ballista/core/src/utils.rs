@@ -56,11 +56,9 @@ use object_store::aws::AmazonS3Builder;
 #[cfg(feature = "azure")]
 use object_store::azure::MicrosoftAzureBuilder;
 use object_store::ObjectStore;
-use std::ffi::CString;
 use std::fmt::Display;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
-use std::os::fd::FromRawFd;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -184,7 +182,7 @@ pub async fn write_stream_to_disk(
     use_remote_memory: bool,
 ) -> Result<PartitionStats> {
     let file = if use_remote_memory {
-        let shm_name = CString::new(path).unwrap();
+        let shm_name = std::ffi::CString::new(path).unwrap();
         let raw_fd = unsafe {
             libc::shm_open(
                 shm_name.as_ptr(),
@@ -196,7 +194,7 @@ pub async fn write_stream_to_disk(
             panic!("Failed to create shared memory");
         }
 
-        unsafe { File::from_raw_fd(raw_fd) }
+        unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(raw_fd) }
     } else {
         File::create(path).map_err(|e| {
             error!("Failed to create partition file at {}: {:?}", path, e);

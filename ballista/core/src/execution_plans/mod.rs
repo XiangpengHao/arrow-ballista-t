@@ -20,7 +20,6 @@
 //!
 
 mod distributed_query;
-mod rm_shuffle_join_reader;
 mod shuffle_reader;
 mod shuffle_writer;
 mod sm_writer;

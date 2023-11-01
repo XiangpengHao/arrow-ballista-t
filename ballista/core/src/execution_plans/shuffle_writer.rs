@@ -172,10 +172,7 @@ impl ShuffleWriterExec {
                 path
             }
             RemoteMemoryMode::FileBasedShuffle | RemoteMemoryMode::MemoryBasedShuffle => {
-                let mut identifier = PathBuf::from("/shm-");
-                identifier.push(&self.job_id);
-                identifier.push(&format!("-{}", self.stage_id));
-                identifier
+                PathBuf::from(format!("/shm-{}-{}", self.job_id, self.stage_id))
             }
             _ => {
                 unreachable!()
@@ -224,13 +221,14 @@ impl ShuffleWriterExec {
 }
 
 fn execute_file_based_remote_shuffle_write(
-    mut identifier: PathBuf,
+    identifier: PathBuf,
     plan: Arc<dyn ExecutionPlan>,
     output_partitioning: Option<Partitioning>,
     write_metrics: ShuffleWriteMetrics,
     input_partition: usize,
     context: Arc<TaskContext>,
 ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
+    let mut path = identifier.to_str().unwrap().to_owned();
     async move {
         let now = Instant::now();
         let mut stream = plan.execute(input_partition, context)?;
@@ -238,17 +236,15 @@ fn execute_file_based_remote_shuffle_write(
         match output_partitioning {
             None => {
                 let timer = write_metrics.write_time.timer();
-                identifier.push(&format!("{input_partition}"));
-                identifier.push("data.arrow");
-                let path = identifier.to_str().unwrap();
+                path.push_str(&format!("-{input_partition}-data.arrow"));
 
                 debug!("Writing results to {}", path);
                 // stream results to disk
                 let stats = utils::write_stream_to_disk(
                     &mut stream,
-                    path,
+                    &path,
                     &write_metrics.write_time,
-                    false,
+                    true,
                 )
                 .await
                 .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
@@ -305,14 +301,16 @@ fn execute_file_based_remote_shuffle_write(
                                     w.write(&output_batch)?;
                                 }
                                 None => {
-                                    let mut idt = identifier.clone();
-                                    idt.push(&format!("-{output_partition}"));
+                                    let mut idt = path.clone();
+                                    idt.push_str(&format!("-{output_partition}"));
 
-                                    idt.push(&format!("-data-{input_partition}.arrow"));
+                                    idt.push_str(&format!(
+                                        "-data-{input_partition}.arrow"
+                                    ));
                                     debug!("Writing results to {:?}", idt);
 
                                     let mut writer = SharedMemoryFileWriter::new(
-                                        idt.to_str().unwrap().to_string(),
+                                        idt,
                                         stream.schema().as_ref(),
                                     )?;
 
@@ -336,7 +334,7 @@ fn execute_file_based_remote_shuffle_write(
                             debug!(
                                 "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
                                 i,
-                                w.identifier(),
+                                w.path(),
                                 w.num_batches,
                                 w.num_rows,
                                 w.num_bytes
@@ -344,7 +342,7 @@ fn execute_file_based_remote_shuffle_write(
 
                             part_locs.push(ShuffleWritePartition {
                                 partition_id: i as u64,
-                                path: w.identifier().to_owned(),
+                                path: w.path().to_owned(),
                                 num_batches: w.num_batches,
                                 num_rows: w.num_rows,
                                 num_bytes: w.num_bytes,
@@ -353,7 +351,6 @@ fn execute_file_based_remote_shuffle_write(
                         None => {}
                     }
                 }
-                log::warn!("shuffle write metrics: {:?}", write_metrics);
                 Ok(part_locs)
             }
 
@@ -506,13 +503,14 @@ fn execute_conventional_shuffle_write(
 }
 
 fn execute_memory_based_remote_shuffle_write(
-    mut identifier: PathBuf,
+    path: PathBuf,
     plan: Arc<dyn ExecutionPlan>,
     output_partitioning: Option<Partitioning>,
     write_metrics: ShuffleWriteMetrics,
     input_partition: usize,
     context: Arc<TaskContext>,
 ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
+    let mut path = path.to_str().unwrap().to_owned();
     async move {
         let now = Instant::now();
         let mut stream = plan.execute(input_partition, context)?;
@@ -520,17 +518,15 @@ fn execute_memory_based_remote_shuffle_write(
         match output_partitioning {
             None => {
                 let timer = write_metrics.write_time.timer();
-                identifier.push(&format!("{input_partition}"));
-                identifier.push("data.arrow");
-                let path = identifier.to_str().unwrap();
+                path.push_str(&format!("{input_partition}-data.arrow"));
 
                 debug!("Writing results to {}", path);
                 // stream results to disk
                 let stats = utils::write_stream_to_disk(
                     &mut stream,
-                    path,
+                    &path,
                     &write_metrics.write_time,
-                    false,
+                    true,
                 )
                 .await
                 .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
@@ -590,14 +586,13 @@ fn execute_memory_based_remote_shuffle_write(
                                     w.write(&output_batch)?;
                                 }
                                 None => {
-                                    let mut idt = identifier.clone();
-                                    idt.push(&format!("-{output_partition}"));
+                                    let mut idt = path.clone();
+                                    idt.push_str(&format!("-{output_partition}-data-{input_partition}.arrow"));
 
-                                    idt.push(&format!("-data-{input_partition}.arrow"));
                                     debug!("Writing results to {:?}", idt);
 
                                     let mut writer = SharedMemoryByteWriter::new(
-                                        idt.to_str().unwrap().to_string(),
+                                        idt,
                                         stream.schema().as_ref(),
                                         estimated_size_per_partition,
                                     )?;

@@ -159,7 +159,7 @@ impl SharedMemoryByteWriter {
 }
 
 pub struct SharedMemoryFileWriter {
-    pub identifier: String,
+    pub path: String,
     pub num_batches: u64,
     pub num_rows: u64,
     pub num_bytes: u64,
@@ -167,8 +167,8 @@ pub struct SharedMemoryFileWriter {
 }
 
 impl SharedMemoryFileWriter {
-    pub fn new(identifier: String, schema: &Schema) -> Result<Self> {
-        let shm_name = CString::new(identifier.clone()).unwrap();
+    pub fn new(path: String, schema: &Schema) -> Result<Self> {
+        let shm_name = CString::new(path.clone()).unwrap();
         let raw_fd = unsafe {
             libc::shm_open(
                 shm_name.as_ptr(),
@@ -177,13 +177,13 @@ impl SharedMemoryFileWriter {
             )
         };
         if raw_fd < 0 {
-            panic!("Failed to create shared memory");
+            panic!("Failed to create shared memory: {}", path);
         }
 
         let file = NoFlushFile::new(raw_fd);
 
         Ok(Self {
-            identifier,
+            path,
             num_batches: 0,
             num_rows: 0,
             num_bytes: 0,
@@ -203,8 +203,8 @@ impl SharedMemoryFileWriter {
         self.writer.finish().map_err(Into::into)
     }
 
-    pub fn identifier(&self) -> &str {
-        &self.identifier
+    pub fn path(&self) -> &str {
+        &self.path
     }
 }
 

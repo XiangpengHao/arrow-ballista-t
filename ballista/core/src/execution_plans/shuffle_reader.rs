@@ -32,7 +32,7 @@ use crate::utils::RemoteMemoryMode;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ipc::reader::FileReader;
-use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
 
 use datafusion::error::Result;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
@@ -54,6 +54,8 @@ use rand::thread_rng;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
+
+use super::rm_writer::NoBufReader;
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
 /// being executed by an executor
@@ -220,33 +222,41 @@ fn stats_for_partitions(
     )
 }
 
-pub(super) struct LocalShuffleStream {
-    reader: FileReader<File>,
+pub(super) struct LocalShuffleStream<
+    I: Iterator<Item = Result<RecordBatch, ArrowError>> + RecordBatchReader,
+> {
+    reader: I,
 }
 
-impl LocalShuffleStream {
-    pub fn new(reader: FileReader<File>) -> Self {
+impl<I: Iterator<Item = Result<RecordBatch, ArrowError>> + RecordBatchReader>
+    LocalShuffleStream<I>
+{
+    pub fn new(reader: I) -> Self {
         LocalShuffleStream { reader }
     }
 }
 
-impl Stream for LocalShuffleStream {
+impl<I: Iterator<Item = Result<RecordBatch, ArrowError>> + RecordBatchReader + Unpin>
+    Stream for LocalShuffleStream<I>
+{
     type Item = Result<RecordBatch>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
         _: &mut Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if let Some(batch) = self.reader.next() {
+        let mut this = self.as_mut();
+        if let Some(batch) = this.reader.next() {
             return Poll::Ready(Some(batch.map_err(|e| e.into())));
         }
         Poll::Ready(None)
     }
 }
-
-impl RecordBatchStream for LocalShuffleStream {
+impl<I: Iterator<Item = Result<RecordBatch, ArrowError>> + RecordBatchReader + Unpin>
+    RecordBatchStream for LocalShuffleStream<I>
+{
     fn schema(&self) -> SchemaRef {
-        self.reader.schema()
+        self.reader.schema().clone()
     }
 }
 
@@ -484,7 +494,7 @@ fn fetch_partition_local_disk_inner(
 
 fn fetch_partition_remote_memory_inner(
     path: &str,
-) -> result::Result<FileReader<File>, BallistaError> {
+) -> result::Result<NoBufReader<File>, BallistaError> {
     let shm_name = CString::new(path.to_owned()).unwrap();
 
     let raw_fd = unsafe {
@@ -505,7 +515,7 @@ fn fetch_partition_remote_memory_inner(
 
     let file = unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(raw_fd) };
 
-    FileReader::try_new(file, None).map_err(|e| {
+    NoBufReader::try_new(file, None).map_err(|e| {
         BallistaError::General(format!("Failed to new arrow FileReader at {path}: {e:?}"))
     })
 }

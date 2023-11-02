@@ -1,26 +1,32 @@
 use std::{
     collections::HashMap,
     ffi::CString,
+    fmt,
     fs::File,
-    io::Write,
+    io::{Read, Seek, SeekFrom, Write},
     os::fd::AsRawFd,
     path::{Path, PathBuf},
     ptr::null_mut,
+    sync::Arc,
 };
 
 use datafusion::{
     arrow::{
-        datatypes::Schema,
+        array::ArrayRef,
+        buffer::MutableBuffer,
+        datatypes::{Schema, SchemaRef},
         error::{ArrowError, Result},
         ipc::{
             convert,
+            reader::{read_dictionary, read_record_batch},
+            root_as_footer, root_as_message,
             writer::{
                 write_message, DictionaryTracker, FileWriter, IpcDataGenerator,
                 IpcWriteOptions,
             },
-            Block, FooterBuilder, MetadataVersion,
+            Block, FooterBuilder, MessageHeader, MetadataVersion,
         },
-        record_batch::RecordBatch,
+        record_batch::{RecordBatch, RecordBatchReader},
     },
     error::DataFusionError,
 };
@@ -363,7 +369,7 @@ fn write_continuation<W: Write>(mut writer: W, total_len: i32) -> Result<usize> 
 }
 
 /// Write in Arrow IPC format.
-pub struct IPCWriter {
+pub struct BuffedDirectWriter {
     /// path
     pub path: PathBuf,
     /// inner writer
@@ -380,7 +386,7 @@ fn advise_no_cache(file: &File) -> i32 {
     unsafe { libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_DONTNEED) }
 }
 
-impl IPCWriter {
+impl BuffedDirectWriter {
     /// Create new writer
     pub fn new(path: &Path, schema: &Schema) -> Result<Self> {
         let file = File::create(path).map_err(|e| {
@@ -418,5 +424,256 @@ impl IPCWriter {
     /// Path write to
     pub fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+pub struct NoBufReader<R: Read + Seek> {
+    /// Buffered file reader that supports reading and seeking
+    reader: R,
+
+    /// The schema that is read from the file header
+    schema: SchemaRef,
+
+    /// The blocks in the file
+    ///
+    /// A block indicates the regions in the file to read to get data
+    blocks: Vec<Block>,
+
+    /// A counter to keep track of the current block that should be read
+    current_block: usize,
+
+    /// The total number of blocks, which may contain record batches and other types
+    total_blocks: usize,
+
+    /// Optional dictionaries for each schema field.
+    ///
+    /// Dictionaries may be appended to in the streaming format.
+    dictionaries_by_id: HashMap<i64, ArrayRef>,
+
+    /// Metadata version
+    metadata_version: MetadataVersion,
+
+    /// Optional projection and projected_schema
+    projection: Option<(Vec<usize>, Schema)>,
+}
+
+impl<R: Read + Seek> fmt::Debug for NoBufReader<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::result::Result<(), fmt::Error> {
+        f.debug_struct("FileReader<R>")
+            .field("reader", &"BufReader<..>")
+            .field("schema", &self.schema)
+            .field("blocks", &self.blocks)
+            .field("current_block", &self.current_block)
+            .field("total_blocks", &self.total_blocks)
+            .field("dictionaries_by_id", &self.dictionaries_by_id)
+            .field("metadata_version", &self.metadata_version)
+            .field("projection", &self.projection)
+            .finish()
+    }
+}
+
+impl<R: Read + Seek> NoBufReader<R> {
+    /// Try to create a new file reader
+    ///
+    /// Returns errors if the file does not meet the Arrow Format header and footer
+    /// requirements
+    pub fn try_new(reader: R, projection: Option<Vec<usize>>) -> Result<Self> {
+        let mut reader = reader;
+        // check if header and footer contain correct magic bytes
+        let mut magic_buffer: [u8; 6] = [0; 6];
+        reader.read_exact(&mut magic_buffer)?;
+        if magic_buffer != ARROW_MAGIC {
+            return Err(ArrowError::IoError(
+                "Arrow file does not contain correct header".to_string(),
+            ));
+        }
+        reader.seek(SeekFrom::End(-6))?;
+        reader.read_exact(&mut magic_buffer)?;
+        if magic_buffer != ARROW_MAGIC {
+            return Err(ArrowError::IoError(
+                "Arrow file does not contain correct footer".to_string(),
+            ));
+        }
+        // read footer length
+        let mut footer_size: [u8; 4] = [0; 4];
+        reader.seek(SeekFrom::End(-10))?;
+        reader.read_exact(&mut footer_size)?;
+        let footer_len = i32::from_le_bytes(footer_size);
+
+        // read footer
+        let mut footer_data = vec![0; footer_len as usize];
+        reader.seek(SeekFrom::End(-10 - footer_len as i64))?;
+        reader.read_exact(&mut footer_data)?;
+
+        let footer = root_as_footer(&footer_data[..]).map_err(|err| {
+            ArrowError::IoError(format!("Unable to get root as footer: {err:?}"))
+        })?;
+
+        let blocks = footer.recordBatches().ok_or_else(|| {
+            ArrowError::IoError(
+                "Unable to get record batches from IPC Footer".to_string(),
+            )
+        })?;
+
+        let total_blocks = blocks.len();
+
+        let ipc_schema = footer.schema().unwrap();
+        let schema = convert::fb_to_schema(ipc_schema);
+
+        // Create an array of optional dictionary value arrays, one per field.
+        let mut dictionaries_by_id = HashMap::new();
+        if let Some(dictionaries) = footer.dictionaries() {
+            for block in dictionaries {
+                // read length from end of offset
+                let mut message_size: [u8; 4] = [0; 4];
+                reader.seek(SeekFrom::Start(block.offset() as u64))?;
+                reader.read_exact(&mut message_size)?;
+                if message_size == CONTINUATION_MARKER {
+                    reader.read_exact(&mut message_size)?;
+                }
+                let footer_len = i32::from_le_bytes(message_size);
+                let mut block_data = vec![0; footer_len as usize];
+
+                reader.read_exact(&mut block_data)?;
+
+                let message = root_as_message(&block_data[..]).map_err(|err| {
+                    ArrowError::IoError(format!("Unable to get root as message: {err:?}"))
+                })?;
+
+                match message.header_type() {
+                    MessageHeader::DictionaryBatch => {
+                        let batch = message.header_as_dictionary_batch().unwrap();
+
+                        // read the block that makes up the dictionary batch into a buffer
+                        let mut buf =
+                            MutableBuffer::from_len_zeroed(message.bodyLength() as usize);
+                        reader.seek(SeekFrom::Start(
+                            block.offset() as u64 + block.metaDataLength() as u64,
+                        ))?;
+                        reader.read_exact(&mut buf)?;
+
+                        read_dictionary(
+                            &buf.into(),
+                            batch,
+                            &schema,
+                            &mut dictionaries_by_id,
+                            &message.version(),
+                        )?;
+                    }
+                    t => {
+                        return Err(ArrowError::IoError(format!(
+                            "Expecting DictionaryBatch in dictionary blocks, found {t:?}."
+                        )));
+                    }
+                }
+            }
+        }
+        let projection = match projection {
+            Some(projection_indices) => {
+                let schema = schema.project(&projection_indices)?;
+                Some((projection_indices, schema))
+            }
+            _ => None,
+        };
+
+        Ok(Self {
+            reader,
+            schema: Arc::new(schema),
+            blocks: blocks.iter().copied().collect(),
+            current_block: 0,
+            total_blocks,
+            dictionaries_by_id,
+            metadata_version: footer.version(),
+            projection,
+        })
+    }
+
+    /// Return the schema of the file
+    pub fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn maybe_next(&mut self) -> Result<Option<RecordBatch>> {
+        let block = self.blocks[self.current_block];
+        self.current_block += 1;
+
+        // read length
+        self.reader.seek(SeekFrom::Start(block.offset() as u64))?;
+        let mut meta_buf = [0; 4];
+        self.reader.read_exact(&mut meta_buf)?;
+        if meta_buf == CONTINUATION_MARKER {
+            // continuation marker encountered, read message next
+            self.reader.read_exact(&mut meta_buf)?;
+        }
+        let meta_len = i32::from_le_bytes(meta_buf);
+
+        let mut block_data = vec![0; meta_len as usize];
+        self.reader.read_exact(&mut block_data)?;
+        let message = root_as_message(&block_data[..]).map_err(|err| {
+            ArrowError::IoError(format!("Unable to get root as footer: {err:?}"))
+        })?;
+
+        // some old test data's footer metadata is not set, so we account for that
+        if self.metadata_version != MetadataVersion::V1
+            && message.version() != self.metadata_version
+        {
+            return Err(ArrowError::IoError(
+                "Could not read IPC message as metadata versions mismatch".to_string(),
+            ));
+        }
+
+        match message.header_type() {
+            MessageHeader::Schema => Err(ArrowError::IoError(
+                "Not expecting a schema when messages are read".to_string(),
+            )),
+            MessageHeader::RecordBatch => {
+                let batch = message.header_as_record_batch().ok_or_else(|| {
+                    ArrowError::IoError(
+                        "Unable to read IPC message as record batch".to_string(),
+                    )
+                })?;
+                // read the block that makes up the record batch into a buffer
+                let mut buf = MutableBuffer::from_len_zeroed(message.bodyLength() as usize);
+                self.reader.seek(SeekFrom::Start(
+                    block.offset() as u64 + block.metaDataLength() as u64,
+                ))?;
+                self.reader.read_exact(&mut buf)?;
+
+                read_record_batch(
+                    &buf.into(),
+                    batch,
+                    self.schema(),
+                    &self.dictionaries_by_id,
+                    self.projection.as_ref().map(|x| x.0.as_ref()),
+                    &message.version()
+
+                ).map(Some)
+            }
+            MessageHeader::NONE => {
+                Ok(None)
+            }
+            t => Err(ArrowError::IoError(format!(
+                "Reading types other than record batches not yet supported, unable to read {t:?}"
+            ))),
+        }
+    }
+}
+
+impl<R: Read + Seek> Iterator for NoBufReader<R> {
+    type Item = Result<RecordBatch>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // get current block
+        if self.current_block < self.total_blocks {
+            self.maybe_next().transpose()
+        } else {
+            None
+        }
+    }
+}
+
+impl<R: Read + Seek> RecordBatchReader for NoBufReader<R> {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 }

@@ -22,7 +22,7 @@
 mod distributed_query;
 mod shuffle_reader;
 mod shuffle_writer;
-mod sm_writer;
+mod rm_writer;
 mod unresolved_shuffle;
 mod utils;
 

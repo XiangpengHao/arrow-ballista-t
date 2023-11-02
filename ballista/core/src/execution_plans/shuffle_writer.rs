@@ -29,8 +29,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::execution_plans::sm_writer::{
-    IPCWriter, SharedMemoryByteWriter, SharedMemoryFileWriter,
+use crate::execution_plans::rm_writer::{
+    BuffedDirectWriter, SharedMemoryByteWriter, SharedMemoryFileWriter,
 };
 use crate::utils::{self, RemoteMemoryMode};
 
@@ -414,7 +414,7 @@ async fn execute_conventional_shuffle_write(
         Some(Partitioning::Hash(exprs, num_output_partitions)) => {
             // we won't necessary produce output for every possible partition, so we
             // create writers on demand
-            let mut writers: Vec<Option<IPCWriter>> = vec![];
+            let mut writers: Vec<Option<BuffedDirectWriter>> = vec![];
             for _ in 0..num_output_partitions {
                 writers.push(None);
             }
@@ -447,7 +447,7 @@ async fn execute_conventional_shuffle_write(
                                 debug!("Writing results to {:?}", path);
 
                                 let mut writer =
-                                    IPCWriter::new(&path, stream.schema().as_ref())?;
+                                    BuffedDirectWriter::new(&path, stream.schema().as_ref())?;
 
                                 writer.write(&output_batch)?;
                                 writers[output_partition] = Some(writer);

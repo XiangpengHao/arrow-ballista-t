@@ -55,7 +55,7 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::rm_writer::NoBufReader;
+use super::rm_writer::{MemoryReader, NoBufReader};
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
 /// being executed by an executor
@@ -305,16 +305,26 @@ fn send_fetch_partitions(
         RemoteMemoryMode::DoNotUse => {
             send_fetch_partitions_from_disk(partition_locations, max_request_num)
         }
-        RemoteMemoryMode::FileBasedShuffle | RemoteMemoryMode::MemoryBasedShuffle => {
-            send_fetch_partitions_from_remote_memory(partition_locations, max_request_num)
+        RemoteMemoryMode::FileBasedShuffle => {
+            send_fetch_partitions_from_remote_memory_file(
+                partition_locations,
+                max_request_num,
+            )
         }
+        RemoteMemoryMode::MemoryBasedShuffle => {
+            send_fetch_partitions_from_remote_memory_byte(
+                partition_locations,
+                max_request_num,
+            )
+        }
+
         _ => {
             unreachable!()
         }
     }
 }
 
-fn send_fetch_partitions_from_remote_memory(
+fn send_fetch_partitions_from_remote_memory_file(
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
 ) -> AbortableReceiverStream {
@@ -330,7 +340,34 @@ fn send_fetch_partitions_from_remote_memory(
     let response_sender_c = response_sender.clone();
     let join_handle = tokio::spawn(async move {
         for p in partition_locations {
-            let r = fetch_partition_remote_memory(&p).await;
+            let r = fetch_partition_remote_memory_file(&p).await;
+            if let Err(e) = response_sender_c.send(r).await {
+                error!("Fail to send response event to the channel due to {}", e);
+            }
+        }
+    });
+    join_handles.push(join_handle);
+
+    AbortableReceiverStream::create(response_receiver, join_handles)
+}
+
+fn send_fetch_partitions_from_remote_memory_byte(
+    partition_locations: Vec<PartitionLocation>,
+    max_request_num: usize,
+) -> AbortableReceiverStream {
+    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
+    let mut join_handles = vec![];
+
+    info!(
+        "fetching {} partitions from remote memory",
+        partition_locations.len()
+    );
+
+    // keep local shuffle files reading in serial order for memory control.
+    let response_sender_c = response_sender.clone();
+    let join_handle = tokio::spawn(async move {
+        for p in partition_locations {
+            let r = fetch_partition_remote_memory_byte(&p).await;
             if let Err(e) = response_sender_c.send(r).await {
                 error!("Fail to send response event to the channel due to {}", e);
             }
@@ -464,25 +501,6 @@ async fn fetch_partition_local_disk(
     Ok(Box::pin(LocalShuffleStream::new(reader)))
 }
 
-async fn fetch_partition_remote_memory(
-    location: &PartitionLocation,
-) -> result::Result<SendableRecordBatchStream, BallistaError> {
-    let path = &location.path;
-    let metadata = &location.executor_meta;
-    let partition_id = &location.partition_id;
-
-    let reader = fetch_partition_remote_memory_inner(path).map_err(|e| {
-        // return BallistaError::FetchFailed may let scheduler retry this task.
-        BallistaError::FetchFailed(
-            metadata.id.clone(),
-            partition_id.stage_id,
-            partition_id.partition_id,
-            e.to_string(),
-        )
-    })?;
-    Ok(Box::pin(LocalShuffleStream::new(reader)))
-}
-
 fn fetch_partition_local_disk_inner(
     path: &str,
 ) -> result::Result<FileReader<File>, BallistaError> {
@@ -494,32 +512,126 @@ fn fetch_partition_local_disk_inner(
     })
 }
 
-fn fetch_partition_remote_memory_inner(
-    path: &str,
-) -> result::Result<NoBufReader<File>, BallistaError> {
-    let shm_name = CString::new(path.to_owned()).unwrap();
+#[allow(dead_code)]
+fn get_shm_size(fd: i32) -> Result<usize, std::io::Error> {
+    let mut stat_buf = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let ret = unsafe { libc::fstat(fd, stat_buf.as_mut_ptr()) };
+    if ret < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let stat_buf = unsafe { stat_buf.assume_init() };
+    Ok(stat_buf.st_size as usize)
+}
 
-    let raw_fd = unsafe {
-        libc::shm_open(
-            shm_name.as_ptr(),
-            libc::O_RDONLY,
-            libc::S_IRUSR | libc::S_IWUSR,
-        )
+async fn fetch_partition_remote_memory_byte(
+    location: &PartitionLocation,
+) -> result::Result<SendableRecordBatchStream, BallistaError> {
+    let path = &location.path;
+    let metadata = &location.executor_meta;
+    let partition_id = &location.partition_id;
+
+    let reader = {
+        let shm_name = CString::new(path.to_owned()).unwrap();
+
+        let raw_fd =
+            unsafe { libc::shm_open(shm_name.as_ptr(), libc::O_RDONLY, libc::S_IRUSR) };
+
+        if raw_fd < 0 {
+            return Err(BallistaError::General(format!(
+                "Failed to open shared memory at {}, err {}",
+                path,
+                std::io::Error::last_os_error()
+            )));
+        }
+        let size = location
+            .partition_stats
+            .physical_bytes
+            .expect("physical_bytes is None") as usize;
+
+        log::info!(
+            "fetch_partition_remote_memory_byte: path:{}, physical size:{}, record batch size:{}",
+            path,
+            size,
+            location.partition_stats.num_bytes.unwrap()
+        );
+
+        let shm_ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                size,
+                libc::PROT_READ,
+                libc::MAP_SHARED,
+                raw_fd,
+                0,
+            )
+        } as *mut u8;
+
+        let reader = MemoryReader::new(shm_ptr, size);
+
+        NoBufReader::try_new(reader, None).map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to new arrow FileReader at {path}: {e:?}"
+            ))
+        })
     };
 
-    if raw_fd < 0 {
-        return Err(BallistaError::General(format!(
-            "Failed to open shared memory at {}, err {}",
-            path,
-            std::io::Error::last_os_error()
-        )));
-    }
+    let reader = reader.map_err(|e| {
+        // return BallistaError::FetchFailed may let scheduler retry this task.
+        BallistaError::FetchFailed(
+            metadata.id.clone(),
+            partition_id.stage_id,
+            partition_id.partition_id,
+            e.to_string(),
+        )
+    })?;
+    Ok(Box::pin(LocalShuffleStream::new(reader)))
+}
 
-    let file = unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(raw_fd) };
+async fn fetch_partition_remote_memory_file(
+    location: &PartitionLocation,
+) -> result::Result<SendableRecordBatchStream, BallistaError> {
+    let path = &location.path;
+    let metadata = &location.executor_meta;
+    let partition_id = &location.partition_id;
 
-    NoBufReader::try_new(file, None).map_err(|e| {
-        BallistaError::General(format!("Failed to new arrow FileReader at {path}: {e:?}"))
-    })
+    let reader = {
+        let shm_name = CString::new(path.to_owned()).unwrap();
+
+        let raw_fd = unsafe {
+            libc::shm_open(
+                shm_name.as_ptr(),
+                libc::O_RDONLY,
+                libc::S_IRUSR | libc::S_IWUSR,
+            )
+        };
+
+        if raw_fd < 0 {
+            return Err(BallistaError::General(format!(
+                "Failed to open shared memory at {}, err {}",
+                path,
+                std::io::Error::last_os_error()
+            )));
+        }
+
+        let file = unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(raw_fd) };
+
+        NoBufReader::try_new(file, None).map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to new arrow FileReader at {path}: {e:?}"
+            ))
+        })
+    };
+
+    let reader = reader.map_err(|e| {
+        // return BallistaError::FetchFailed may let scheduler retry this task.
+        BallistaError::FetchFailed(
+            metadata.id.clone(),
+            partition_id.stage_id,
+            partition_id.partition_id,
+            e.to_string(),
+        )
+    })?;
+    Ok(Box::pin(LocalShuffleStream::new(reader)))
 }
 
 #[cfg(test)]
@@ -560,11 +672,13 @@ mod tests {
                 num_rows: Some(10),
                 num_bytes: Some(84),
                 num_batches: Some(1),
+                physical_bytes: Some(84),
             },
             PartitionStats {
                 num_rows: Some(4),
                 num_bytes: Some(65),
                 num_batches: None,
+                physical_bytes: Some(65),
             },
         ];
 
@@ -587,11 +701,13 @@ mod tests {
                 num_rows: Some(10),
                 num_bytes: Some(84),
                 num_batches: Some(1),
+                physical_bytes: Some(84),
             },
             PartitionStats {
                 num_rows: None,
                 num_bytes: None,
                 num_batches: None,
+                physical_bytes: None,
             },
         ];
 

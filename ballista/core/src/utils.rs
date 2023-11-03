@@ -222,10 +222,12 @@ pub async fn write_stream_to_disk(
     let timer = disk_write_metric.timer();
     writer.finish()?;
     timer.done();
+    let physical_size = writer.get_ref().metadata()?.len();
     Ok(PartitionStats::new(
         Some(num_rows as u64),
         Some(num_batches),
         Some(num_bytes as u64),
+        Some(physical_size as u64),
     ))
 }
 

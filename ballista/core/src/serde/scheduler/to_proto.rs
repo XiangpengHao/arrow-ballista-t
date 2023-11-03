@@ -92,6 +92,7 @@ impl Into<protobuf::PartitionStats> for PartitionStats {
             num_rows: self.num_rows.map(|n| n as i64).unwrap_or(none_value),
             num_batches: self.num_batches.map(|n| n as i64).unwrap_or(none_value),
             num_bytes: self.num_bytes.map(|n| n as i64).unwrap_or(none_value),
+            physical_bytes: self.physical_bytes.map(|n| n as i64).unwrap_or(none_value),
             column_stats: vec![],
         }
     }

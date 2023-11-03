@@ -378,7 +378,9 @@ pub struct PartitionStats {
     pub num_batches: i64,
     #[prost(int64, tag = "3")]
     pub num_bytes: i64,
-    #[prost(message, repeated, tag = "4")]
+    #[prost(int64, tag = "4")]
+    pub physical_bytes: i64,
+    #[prost(message, repeated, tag = "5")]
     pub column_stats: ::prost::alloc::vec::Vec<ColumnStats>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -677,6 +679,8 @@ pub struct ShuffleWritePartition {
     pub num_rows: u64,
     #[prost(uint64, tag = "5")]
     pub num_bytes: u64,
+    #[prost(uint64, tag = "6")]
+    pub physical_bytes: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

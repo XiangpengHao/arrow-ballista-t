@@ -98,6 +98,7 @@ impl Into<PartitionStats> for protobuf::PartitionStats {
             foo(self.num_rows),
             foo(self.num_batches),
             foo(self.num_bytes),
+            foo(self.physical_bytes),
         )
     }
 }

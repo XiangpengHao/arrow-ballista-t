@@ -1506,6 +1506,7 @@ fn partition_to_location(
                 Some(shuffle.num_rows),
                 Some(shuffle.num_batches),
                 Some(shuffle.num_bytes),
+                Some(shuffle.physical_bytes),
             ),
             path: shuffle.path,
         })

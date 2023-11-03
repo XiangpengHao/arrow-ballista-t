@@ -35,7 +35,7 @@ use flatbuffers::FlatBufferBuilder;
 pub struct MemoryWriter {
     ptr: *mut u8,
     capacity: usize,
-    offset: usize,
+    pub(super) offset: usize,
 }
 
 unsafe impl Send for MemoryWriter {}
@@ -124,7 +124,7 @@ pub struct SharedMemoryByteWriter {
     pub num_batches: u64,
     pub num_rows: u64,
     pub num_bytes: u64,
-    writer: NoBuffWriter<MemoryWriter>,
+    pub writer: NoBuffWriter<MemoryWriter>,
 }
 
 impl SharedMemoryByteWriter {
@@ -185,6 +185,10 @@ impl SharedMemoryByteWriter {
     pub fn identifier(&self) -> &str {
         &self.identifier
     }
+
+    pub fn get_physical_written_bytes(&self) -> usize {
+        self.writer.writer.offset
+    }
 }
 
 pub struct SharedMemoryFileWriter {
@@ -192,7 +196,7 @@ pub struct SharedMemoryFileWriter {
     pub num_batches: u64,
     pub num_rows: u64,
     pub num_bytes: u64,
-    pub writer: FileWriter<File>,
+    pub writer: NoBuffWriter<File>,
 }
 
 impl SharedMemoryFileWriter {
@@ -216,7 +220,7 @@ impl SharedMemoryFileWriter {
             num_batches: 0,
             num_rows: 0,
             num_bytes: 0,
-            writer: FileWriter::try_new(file, schema).unwrap(),
+            writer: NoBuffWriter::try_new(file, schema).unwrap(),
         })
     }
 
@@ -238,8 +242,8 @@ impl SharedMemoryFileWriter {
 }
 
 /// Mirror of arrow_ipc::FileWriter, but without the BufWriter
-struct NoBuffWriter<W: Write> {
-    writer: W,
+pub struct NoBuffWriter<W: Write> {
+    pub(super) writer: W,
     /// IPC write options
     write_options: IpcWriteOptions,
     /// A reference to the schema, used in validating record batches

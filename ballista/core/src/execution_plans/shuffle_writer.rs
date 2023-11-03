@@ -269,6 +269,7 @@ async fn execute_file_based_remote_shuffle_write(
                 num_batches: stats.num_batches.unwrap_or(0),
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
+                physical_bytes: stats.physical_bytes.unwrap_or(0),
             }])
         }
 
@@ -343,6 +344,7 @@ async fn execute_file_based_remote_shuffle_write(
                             num_batches: w.num_batches,
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
+                            physical_bytes: w.num_batches,
                         });
                     }
                     None => {}
@@ -408,6 +410,7 @@ async fn execute_conventional_shuffle_write(
                 num_batches: stats.num_batches.unwrap_or(0),
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
+                physical_bytes: stats.physical_bytes.unwrap_or(0),
             }])
         }
 
@@ -446,8 +449,10 @@ async fn execute_conventional_shuffle_write(
                                 path.push(format!("data-{input_partition}.arrow"));
                                 debug!("Writing results to {:?}", path);
 
-                                let mut writer =
-                                    BuffedDirectWriter::new(&path, stream.schema().as_ref())?;
+                                let mut writer = BuffedDirectWriter::new(
+                                    &path,
+                                    stream.schema().as_ref(),
+                                )?;
 
                                 writer.write(&output_batch)?;
                                 writers[output_partition] = Some(writer);
@@ -481,6 +486,7 @@ async fn execute_conventional_shuffle_write(
                             num_batches: w.num_batches,
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
+                            physical_bytes: w.num_bytes,
                         });
                     }
                     None => {}
@@ -545,6 +551,7 @@ async fn execute_memory_based_remote_shuffle_write(
                 num_batches: stats.num_batches.unwrap_or(0),
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
+                physical_bytes: stats.physical_bytes.unwrap_or(0),
             }])
         }
 
@@ -609,14 +616,17 @@ async fn execute_memory_based_remote_shuffle_write(
                 match w {
                     Some(w) => {
                         w.finish()?;
-                        debug!(
-                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
+                        info!(
+                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
                                 i,
                                 w.identifier(),
                                 w.num_batches,
                                 w.num_rows,
-                                w.num_bytes
+                                w.num_bytes,
+                                w.get_physical_written_bytes()
                             );
+
+                        let physical_size = w.get_physical_written_bytes();
 
                         part_locs.push(ShuffleWritePartition {
                             partition_id: i as u64,
@@ -624,6 +634,7 @@ async fn execute_memory_based_remote_shuffle_write(
                             num_batches: w.num_batches,
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
+                            physical_bytes: physical_size as u64,
                         });
                     }
                     None => {}
@@ -697,6 +708,8 @@ impl ExecutionPlan for ShuffleWriterExec {
                 let mut num_rows_builder = UInt64Builder::with_capacity(num_writers);
                 let mut num_batches_builder = UInt64Builder::with_capacity(num_writers);
                 let mut num_bytes_builder = UInt64Builder::with_capacity(num_writers);
+                let mut physical_bytes_builder =
+                    UInt64Builder::with_capacity(num_writers);
 
                 for loc in &part_loc {
                     path_builder.append_value(loc.path.clone());
@@ -704,6 +717,7 @@ impl ExecutionPlan for ShuffleWriterExec {
                     num_rows_builder.append_value(loc.num_rows);
                     num_batches_builder.append_value(loc.num_batches);
                     num_bytes_builder.append_value(loc.num_bytes);
+                    physical_bytes_builder.append_value(loc.physical_bytes);
                 }
 
                 // build arrays
@@ -713,6 +727,7 @@ impl ExecutionPlan for ShuffleWriterExec {
                     Box::new(num_rows_builder),
                     Box::new(num_batches_builder),
                     Box::new(num_bytes_builder),
+                    Box::new(physical_bytes_builder),
                 ];
                 let mut stats_builder = StructBuilder::new(
                     PartitionStats::default().arrow_struct_fields(),

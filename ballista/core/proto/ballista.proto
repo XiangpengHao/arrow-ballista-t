@@ -242,7 +242,8 @@ message PartitionStats {
   int64 num_rows = 1;
   int64 num_batches = 2;
   int64 num_bytes = 3;
-  repeated ColumnStats column_stats = 4;
+  int64 physical_bytes = 4;
+  repeated ColumnStats column_stats = 5;
 }
 
 message ColumnStats {
@@ -414,6 +415,7 @@ message ShuffleWritePartition {
   uint64 num_batches = 3;
   uint64 num_rows = 4;
   uint64 num_bytes = 5;
+  uint64 physical_bytes = 6;
 }
 
 message TaskStatus {

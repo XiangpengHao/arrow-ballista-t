@@ -110,14 +110,15 @@ pub struct PartitionStats {
     pub(crate) num_rows: Option<u64>,
     pub(crate) num_batches: Option<u64>,
     pub(crate) num_bytes: Option<u64>,
+    pub(crate) physical_bytes: Option<u64>,
 }
 
 impl fmt::Display for PartitionStats {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "numBatches={:?}, numRows={:?}, numBytes={:?}",
-            self.num_batches, self.num_rows, self.num_bytes
+            "numBatches={:?}, numRows={:?}, numBytes={:?}, physicalBytes={:?}",
+            self.num_batches, self.num_rows, self.num_bytes, self.physical_bytes
         )
     }
 }
@@ -127,11 +128,13 @@ impl PartitionStats {
         num_rows: Option<u64>,
         num_batches: Option<u64>,
         num_bytes: Option<u64>,
+        physical_bytes: Option<u64>,
     ) -> Self {
         Self {
             num_rows,
             num_batches,
             num_bytes,
+            physical_bytes,
         }
     }
 
@@ -200,10 +203,21 @@ impl PartitionStats {
             .as_any()
             .downcast_ref::<UInt64Array>()
             .expect("from_arrow_struct_array expected num_bytes to be a UInt64Array");
+
+        let physical_bytes = struct_array
+            .column_by_name("physical_bytes")
+            .expect("from_arrow_struct_array expected a field physical_bytes")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect(
+                "from_arrow_struct_array expected physical_bytes to be a UInt64Array",
+            );
+
         PartitionStats {
             num_rows: Some(num_rows.value(0).to_owned()),
             num_batches: Some(num_batches.value(0).to_owned()),
             num_bytes: Some(num_bytes.value(0).to_owned()),
+            physical_bytes: Some(physical_bytes.value(0).to_owned()),
         }
     }
 }

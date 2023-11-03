@@ -4,7 +4,7 @@ use std::{
     fmt,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    os::fd::AsRawFd,
+    os::fd::{AsRawFd, FromRawFd},
     path::{Path, PathBuf},
     ptr::null_mut,
     sync::Arc,
@@ -69,30 +69,53 @@ impl Write for MemoryWriter {
     }
 }
 
-pub struct NoFlushFile {
-    raw_fd: i32,
+pub struct MemoryReader {
+    ptr: *const u8,
+    capacity: usize,
+    offset: usize,
 }
 
-impl NoFlushFile {
-    pub fn new(raw_fd: i32) -> Self {
-        Self { raw_fd }
-    }
-}
+unsafe impl Send for MemoryReader {}
 
-impl Write for NoFlushFile {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let len = unsafe {
-            libc::write(self.raw_fd, buf.as_ptr() as *const libc::c_void, buf.len())
-        };
-        if len < 0 {
-            Err(std::io::Error::last_os_error())
-        } else {
-            Ok(len as usize)
+impl MemoryReader {
+    pub fn new(ptr: *const u8, capacity: usize) -> Self {
+        Self {
+            ptr,
+            capacity,
+            offset: 0,
         }
     }
+}
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+impl Read for MemoryReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        assert!(self.capacity - self.offset >= buf.len());
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                self.ptr.add(self.offset),
+                buf.as_mut_ptr(),
+                buf.len(),
+            );
+        }
+        self.offset += buf.len();
+        Ok(buf.len())
+    }
+}
+
+impl Seek for MemoryReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        match pos {
+            SeekFrom::Start(offset) => {
+                self.offset = offset as usize;
+            }
+            SeekFrom::End(offset) => {
+                self.offset = self.capacity - offset as usize;
+            }
+            SeekFrom::Current(offset) => {
+                self.offset += offset as usize;
+            }
+        }
+        Ok(self.offset as u64)
     }
 }
 
@@ -169,7 +192,7 @@ pub struct SharedMemoryFileWriter {
     pub num_batches: u64,
     pub num_rows: u64,
     pub num_bytes: u64,
-    pub writer: FileWriter<NoFlushFile>,
+    pub writer: FileWriter<File>,
 }
 
 impl SharedMemoryFileWriter {
@@ -186,7 +209,7 @@ impl SharedMemoryFileWriter {
             panic!("Failed to create shared memory: {}", path);
         }
 
-        let file = NoFlushFile::new(raw_fd);
+        let file = unsafe { File::from_raw_fd(raw_fd) };
 
         Ok(Self {
             path,

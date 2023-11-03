@@ -376,7 +376,9 @@ fn send_fetch_partitions_from_disk(
         let join_handle = tokio::spawn(async move {
             // Block if exceeds max request number
             let permit = semaphore.acquire_owned().await.unwrap();
-            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let r = PartitionReaderEnum::FlightRemoteDisk
+                .fetch_partition(&p)
+                .await;
             // Block if the channel buffer is ful
             if let Err(e) = response_sender.send(r).await {
                 error!("Fail to send response event to the channel due to {}", e);
@@ -397,7 +399,7 @@ fn check_is_local_location(location: &PartitionLocation) -> bool {
 #[derive(Clone)]
 enum PartitionReaderEnum {
     Local,
-    FlightRemote,
+    FlightRemoteDisk,
 }
 
 impl PartitionReaderEnum {
@@ -407,7 +409,7 @@ impl PartitionReaderEnum {
         location: &PartitionLocation,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
-            PartitionReaderEnum::FlightRemote => {
+            PartitionReaderEnum::FlightRemoteDisk => {
                 fetch_partition_remote_disk(location).await
             }
             PartitionReaderEnum::Local => fetch_partition_local_disk(location).await,

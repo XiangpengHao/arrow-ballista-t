@@ -104,18 +104,45 @@ impl Read for MemoryReader {
 
 impl Seek for MemoryReader {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        match pos {
+        let new_offset = match pos {
             SeekFrom::Start(offset) => {
-                self.offset = offset as usize;
+                // Directly cast to usize since Start should be positive
+                offset as usize
             }
             SeekFrom::End(offset) => {
-                self.offset = self.capacity - offset as usize;
+                // Cast capacity to i64, add offset, and then bounds check
+                let end_offset = self.capacity as i64 + offset;
+                if end_offset < 0 || end_offset as usize > self.capacity {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Invalid seek to a negative position",
+                    ));
+                }
+                end_offset as usize
             }
             SeekFrom::Current(offset) => {
-                self.offset += offset as usize;
+                // Check for overflow and underflow
+                let current_offset = self.offset as i64 + offset;
+                if current_offset < 0 || current_offset as usize > self.capacity {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Invalid seek to a position beyond capacity",
+                    ));
+                }
+                current_offset as usize
             }
+        };
+
+        // Check if new_offset is within the bounds of the memory
+        if new_offset > self.capacity {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Seek out of bounds",
+            ))
+        } else {
+            self.offset = new_offset;
+            Ok(self.offset as u64)
         }
-        Ok(self.offset as u64)
     }
 }
 
@@ -518,7 +545,11 @@ impl<R: Read + Seek> NoBufReader<R> {
         reader.read_exact(&mut magic_buffer)?;
         if magic_buffer != ARROW_MAGIC {
             return Err(ArrowError::IoError(
-                "Arrow file does not contain correct footer".to_string(),
+                format!(
+                    "Arrow file does not contain correct footer: {:?}",
+                    magic_buffer
+                )
+                .to_string(),
             ));
         }
         // read footer length

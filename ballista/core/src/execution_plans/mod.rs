@@ -20,9 +20,11 @@
 //!
 
 mod distributed_query;
+mod hash_join;
+mod join_utils;
+mod rm_writer;
 mod shuffle_reader;
 mod shuffle_writer;
-mod rm_writer;
 mod unresolved_shuffle;
 mod utils;
 

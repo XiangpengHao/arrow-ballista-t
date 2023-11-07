@@ -33,6 +33,7 @@ use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use std::sync::Arc;
 
 pub use distributed_query::DistributedQueryExec;
+pub use hash_join::RMHashJoinExec;
 pub use shuffle_reader::ShuffleReaderExec;
 pub use shuffle_writer::ShuffleWriterExec;
 pub use unresolved_shuffle::UnresolvedShuffleExec;

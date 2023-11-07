@@ -4,7 +4,10 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BallistaPhysicalPlanNode {
-    #[prost(oneof = "ballista_physical_plan_node::PhysicalPlanType", tags = "1, 2, 3")]
+    #[prost(
+        oneof = "ballista_physical_plan_node::PhysicalPlanType",
+        tags = "1, 2, 3, 4"
+    )]
     pub physical_plan_type: ::core::option::Option<
         ballista_physical_plan_node::PhysicalPlanType,
     >,
@@ -20,7 +23,27 @@ pub mod ballista_physical_plan_node {
         ShuffleReader(super::ShuffleReaderExecNode),
         #[prost(message, tag = "3")]
         UnresolvedShuffle(super::UnresolvedShuffleExecNode),
+        #[prost(message, tag = "4")]
+        HashJoin(super::RmHashJoinExecNode),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RmHashJoinExecNode {
+    #[prost(message, optional, tag = "1")]
+    pub left: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
+    #[prost(message, optional, tag = "2")]
+    pub right: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
+    #[prost(message, repeated, tag = "3")]
+    pub on: ::prost::alloc::vec::Vec<::datafusion_proto::protobuf::JoinOn>,
+    #[prost(enumeration = "::datafusion_proto::protobuf::JoinType", tag = "4")]
+    pub join_type: i32,
+    #[prost(enumeration = "::datafusion_proto::protobuf::PartitionMode", tag = "6")]
+    pub partition_mode: i32,
+    #[prost(bool, tag = "7")]
+    pub null_equals_null: bool,
+    #[prost(message, optional, tag = "8")]
+    pub filter: ::core::option::Option<::datafusion_proto::protobuf::JoinFilter>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

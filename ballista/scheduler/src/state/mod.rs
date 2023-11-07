@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::execution_plans::RMHashJoinExec;
 use ballista_core::utils::RemoteMemoryMode;
-use datafusion::common::tree_node::{TreeNode, VisitRecursion};
+use datafusion::common::tree_node::{Transformed, TreeNode, VisitRecursion};
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
 use datafusion::datasource::source_as_provider;
 use datafusion::error::DataFusionError;
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::ExecutionPlan;
 use std::any::type_name;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,7 +44,7 @@ use ballista_core::serde::protobuf::TaskStatus;
 use ballista_core::serde::BallistaCodec;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
-use datafusion::prelude::SessionContext;
+use datafusion::prelude::{JoinType, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{debug, error, info, warn};
@@ -405,7 +409,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             Ok(VisitRecursion::Continue)
         })?;
 
-        let plan = session_ctx.state().create_physical_plan(plan).await?;
+        let plan = session_ctx
+            .state()
+            .add_physical_optimizer_rule(Arc::new(JoinUseRemoteMemoryRule {}))
+            .create_physical_plan(plan)
+            .await?;
+
         debug!(
             "Physical plan: {}",
             DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
@@ -446,5 +455,57 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             job_id,
             self.config.finished_job_state_clean_up_interval_seconds,
         );
+    }
+}
+
+struct JoinUseRemoteMemoryRule {}
+
+impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
+    fn optimize(
+        &self,
+        plan: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        _config: &datafusion::config::ConfigOptions,
+    ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>>
+    {
+        plan.transform_up(&|p| {
+            if let Some(hash_join) = p.as_any().downcast_ref::<HashJoinExec>() {
+                let rv = if matches!(*hash_join.join_type(), JoinType::Inner) {
+                    let partition_mode = hash_join.partition_mode();
+                    match partition_mode {
+                        PartitionMode::Partitioned => {
+                            let left = hash_join.left();
+                            let right = hash_join.right();
+
+                            let new_join = RMHashJoinExec::try_new(
+                                Arc::clone(left),
+                                Arc::clone(right),
+                                hash_join.on().to_vec(),
+                                hash_join.filter().cloned(),
+                                hash_join.join_type(),
+                                *partition_mode,
+                                hash_join.null_equals_null(),
+                            )?;
+                            Ok(Transformed::Yes(
+                                Arc::new(new_join) as Arc<dyn ExecutionPlan>
+                            ))
+                        }
+                        _ => Ok(Transformed::No(p)),
+                    }
+                } else {
+                    Ok(Transformed::No(p))
+                };
+                rv
+            } else {
+                Ok(Transformed::No(p))
+            }
+        })
+    }
+
+    fn name(&self) -> &str {
+        "JoinUseRemoteMemoryRule"
+    }
+
+    fn schema_check(&self) -> bool {
+        true
     }
 }

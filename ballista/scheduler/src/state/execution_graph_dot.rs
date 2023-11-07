@@ -20,7 +20,8 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RMHashJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
+    UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{
@@ -391,6 +392,27 @@ aggr=[{}]
         };
         format!(
             "HashJoin
+join_expr={}
+filter_expr={}
+{}",
+            sanitize_dot_label(&join_expr),
+            sanitize_dot_label(&filter_expr),
+            metric_str
+        )
+    } else if let Some(exec) = plan.as_any().downcast_ref::<RMHashJoinExec>() {
+        let join_expr = exec
+            .on()
+            .iter()
+            .map(|(l, r)| format!("{l} = {r}"))
+            .collect::<Vec<String>>()
+            .join(" AND ");
+        let filter_expr = if let Some(f) = exec.filter() {
+            format!("{}", f.expression())
+        } else {
+            "".to_string()
+        };
+        format!(
+            "RMHashJoin
 join_expr={}
 filter_expr={}
 {}",

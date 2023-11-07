@@ -23,9 +23,16 @@ use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 use arrow_flight::sql::ProstMessageExt;
 use datafusion::common::DataFusionError;
 use datafusion::execution::FunctionRegistry;
+use datafusion::physical_plan::expressions::Column;
+use datafusion::physical_plan::joins::utils::{ColumnIndex, JoinFilter};
+use datafusion::physical_plan::joins::PartitionMode;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
+use datafusion::prelude::JoinType;
 use datafusion_proto::common::proto_error;
-use datafusion_proto::physical_plan::from_proto::parse_protobuf_hash_partitioning;
+use datafusion_proto::into_required;
+use datafusion_proto::physical_plan::from_proto::{
+    parse_physical_expr, parse_protobuf_hash_partitioning,
+};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 use datafusion_proto::{
     convert_required,
@@ -40,7 +47,8 @@ use std::sync::Arc;
 use std::{convert::TryInto, io::Cursor};
 
 use crate::execution_plans::{
-    ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
+    RMHashJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
+    UnresolvedShuffleExec,
 };
 use crate::serde::protobuf::ballista_physical_plan_node::PhysicalPlanType;
 use crate::serde::scheduler::PartitionLocation;
@@ -212,6 +220,84 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     remote_memory_mode: mode.into(),
                 }))
             }
+            PhysicalPlanType::HashJoin(hash_join) => {
+                let left = inputs[0].clone();
+                let right = inputs[1].clone();
+                let on: Vec<(Column, Column)> = hash_join
+                    .on
+                    .iter()
+                    .map(|col| {
+                        let left = into_required!(col.left)?;
+                        let right = into_required!(col.right)?;
+                        Ok((left, right))
+                    })
+                    .collect::<datafusion::error::Result<_>>()?;
+
+                let join_type =
+                    datafusion_proto::protobuf::JoinType::from_i32(hash_join.join_type)
+                        .expect("invalid join type");
+                let join_type = JoinType::from(join_type);
+
+                let filter = hash_join
+                    .filter
+                    .as_ref()
+                    .map(|f| {
+                        let schema = f
+                            .schema
+                            .as_ref()
+                            .ok_or_else(|| proto_error("Missing JoinFilter schema"))?
+                            .try_into()?;
+
+                        let expression = parse_physical_expr(
+                            f.expression.as_ref().ok_or_else(|| {
+                                proto_error("Unexpected empty filter expression")
+                            })?,
+                            registry, &schema
+                        )?;
+                        let column_indices = f.column_indices
+                            .iter()
+                            .map(|i| {
+                                let side = datafusion_proto:: protobuf::JoinSide::from_i32(i.side)
+                                    .expect(
+                                        "Received a HashJoinNode message with JoinSide in Filter"
+                                    );
+
+                                Ok(ColumnIndex{
+                                    index: i.index as usize,
+                                    side: side.into(),
+                                })
+                            })
+                            .collect::<datafusion::error::Result<Vec<_>>>()?;
+
+                        Ok(JoinFilter::new(expression, column_indices, schema))
+                    })
+                    .map_or(Ok(None), |v: datafusion::error::Result<JoinFilter>| v.map(Some))?;
+
+                let partition_mode = datafusion_proto::protobuf::PartitionMode::from_i32(
+                    hash_join.partition_mode,
+                )
+                .expect("Received a HashJoinNode message with unknown PartitionMode ");
+                let partition_mode = match partition_mode {
+                    datafusion_proto::protobuf::PartitionMode::CollectLeft => {
+                        PartitionMode::CollectLeft
+                    }
+                    datafusion_proto::protobuf::PartitionMode::Partitioned => {
+                        PartitionMode::Partitioned
+                    }
+                    datafusion_proto::protobuf::PartitionMode::Auto => {
+                        PartitionMode::Auto
+                    }
+                };
+                Ok(Arc::new(RMHashJoinExec::try_new(
+                    left,
+                    right,
+                    on,
+                    filter,
+                    &join_type,
+                    partition_mode,
+                    hash_join.null_equals_null,
+                )?))
+            }
         }
     }
 
@@ -317,6 +403,84 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 ))
             })?;
 
+            Ok(())
+        } else if let Some(exec) = node.as_any().downcast_ref::<RMHashJoinExec>() {
+            let on: Vec<datafusion_proto::protobuf::JoinOn> = exec
+                .on()
+                .iter()
+                .map(|tuple| datafusion_proto::protobuf::JoinOn {
+                    left: Some(datafusion_proto::protobuf::PhysicalColumn {
+                        name: tuple.0.name().to_string(),
+                        index: tuple.0.index() as u32,
+                    }),
+                    right: Some(datafusion_proto::protobuf::PhysicalColumn {
+                        name: tuple.1.name().to_string(),
+                        index: tuple.1.index() as u32,
+                    }),
+                })
+                .collect();
+            let join_type: datafusion_proto::protobuf::JoinType =
+                exec.join_type().to_owned().into();
+
+            let filter = exec
+                .filter()
+                .as_ref()
+                .map(|f| {
+                    let expression = f.expression().to_owned().try_into()?;
+                    let column_indices = f
+                        .column_indices()
+                        .iter()
+                        .map(|i| {
+                            let side: datafusion_proto::protobuf::JoinSide =
+                                i.side.to_owned().into();
+                            datafusion_proto::protobuf::ColumnIndex {
+                                index: i.index as u32,
+                                side: side.into(),
+                            }
+                        })
+                        .collect();
+                    let schema = f.schema().try_into()?;
+                    Ok(datafusion_proto::protobuf::JoinFilter {
+                        expression: Some(expression),
+                        column_indices,
+                        schema: Some(schema),
+                    })
+                })
+                .map_or(
+                    Ok(None),
+                    |v: datafusion::error::Result<
+                        datafusion_proto::protobuf::JoinFilter,
+                    >| v.map(Some),
+                )?;
+
+            let partition_mode = match exec.partition_mode() {
+                PartitionMode::CollectLeft => {
+                    datafusion_proto::protobuf::PartitionMode::CollectLeft
+                }
+                PartitionMode::Partitioned => {
+                    datafusion_proto::protobuf::PartitionMode::Partitioned
+                }
+                PartitionMode::Auto => datafusion_proto::protobuf::PartitionMode::Auto,
+            };
+
+            let proto = protobuf::BallistaPhysicalPlanNode {
+                physical_plan_type: Some(PhysicalPlanType::HashJoin(
+                    protobuf::RmHashJoinExecNode {
+                        left: None,
+                        right: None,
+                        on,
+                        join_type: join_type.into(),
+                        filter,
+                        partition_mode: partition_mode.into(),
+                        null_equals_null: exec.null_equals_null(),
+                    },
+                )),
+            };
+            proto.encode(buf).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "failed to encode remote hash join execution plan: {e:?}"
+                ))
+            })?;
             Ok(())
         } else {
             Err(DataFusionError::Internal(format!(

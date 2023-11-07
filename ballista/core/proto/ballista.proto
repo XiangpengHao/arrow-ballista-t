@@ -34,8 +34,20 @@ message BallistaPhysicalPlanNode {
     ShuffleWriterExecNode shuffle_writer = 1;
     ShuffleReaderExecNode shuffle_reader = 2;
     UnresolvedShuffleExecNode unresolved_shuffle = 3;
+    RMHashJoinExecNode hash_join = 4;
   }
 }
+
+message RMHashJoinExecNode {
+  datafusion.PhysicalPlanNode left = 1;
+  datafusion.PhysicalPlanNode right = 2;
+  repeated datafusion.JoinOn on = 3;
+  datafusion.JoinType join_type = 4;
+  datafusion.PartitionMode partition_mode = 6;
+  bool null_equals_null = 7;
+  datafusion.JoinFilter filter = 8;
+}
+
 
 enum RemoteMemoryMode {
   do_not_use = 0;

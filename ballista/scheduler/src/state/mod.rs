@@ -411,7 +411,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
 
         let plan = session_ctx
             .state()
-            .add_physical_optimizer_rule(Arc::new(JoinUseRemoteMemoryRule {}))
+            .add_physical_optimizer_rule(Arc::new(JoinUseRemoteMemoryRule { mode }))
             .create_physical_plan(plan)
             .await?;
 
@@ -458,7 +458,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     }
 }
 
-struct JoinUseRemoteMemoryRule {}
+struct JoinUseRemoteMemoryRule {
+    mode: RemoteMemoryMode,
+}
 
 impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
     fn optimize(
@@ -467,6 +469,9 @@ impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
         _config: &datafusion::config::ConfigOptions,
     ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>>
     {
+        if !matches!(self.mode, RemoteMemoryMode::MemoryBasedShuffle) {
+            return Ok(plan);
+        }
         plan.transform_up(&|p| {
             if let Some(hash_join) = p.as_any().downcast_ref::<HashJoinExec>() {
                 let rv = if matches!(*hash_join.join_type(), JoinType::Inner) {

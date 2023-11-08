@@ -71,8 +71,7 @@ use futures::{ready, Stream, StreamExt, TryStreamExt};
 use super::join_utils::{
     adjust_indices_by_join_type, apply_join_filter_to_indices, build_batch_from_indices,
     estimate_join_statistics, get_final_indices_from_bit_map,
-    need_produce_result_in_final, BuildProbeJoinMetrics, JoinHashMap, JoinHashMapType,
-    OnceAsync, OnceFut,
+    need_produce_result_in_final, BuildProbeJoinMetrics, JoinHashMap, OnceAsync, OnceFut,
 };
 
 type JoinLeftData = (JoinHashMap, RecordBatch, MemoryReservation);
@@ -603,18 +602,15 @@ async fn collect_left_input(
 
 /// Updates `hash` with new entries from [RecordBatch] evaluated against the expressions `on`,
 /// assuming that the [RecordBatch] corresponds to the `index`th
-pub fn update_hash<T>(
+pub fn update_hash(
     on: &[Column],
     batch: &RecordBatch,
-    hash_map: &mut T,
+    hash_map: &mut JoinHashMap,
     offset: usize,
     random_state: &RandomState,
     hashes_buffer: &mut Vec<u64>,
     deleted_offset: usize,
-) -> Result<()>
-where
-    T: JoinHashMapType,
-{
+) -> Result<()> {
     // evaluate the keys
     let keys_values = on
         .iter()
@@ -722,8 +718,8 @@ impl RecordBatchStream for HashJoinStream {
 // Build indices: 4, 5, 6, 6
 // Probe indices: 3, 3, 4, 5
 #[allow(clippy::too_many_arguments)]
-pub fn build_equal_condition_join_indices<T: JoinHashMapType>(
-    build_hashmap: &T,
+pub fn build_equal_condition_join_indices(
+    build_hashmap: &JoinHashMap,
     build_input_buffer: &RecordBatch,
     probe_batch: &RecordBatch,
     build_on: &[Column],

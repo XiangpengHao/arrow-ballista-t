@@ -19,7 +19,6 @@
 //! related functionality, used both in join calculations and optimization rules.
 
 use std::fmt::Debug;
-use std::ops::IndexMut;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::{fmt, usize};
@@ -101,7 +100,7 @@ use parking_lot::Mutex;
 // https://github.com/apache/arrow-datafusion/issues/50
 pub struct JoinHashMap {
     // Stores hash value to last row index
-    pub map: RawTable<(u64, u64)>,
+    pub map: RawTable<(u64, u64), douhua::RemoteAlloc>,
     // Stores indices in chained list data structure
     pub next: Vec<u64>,
 }
@@ -109,45 +108,34 @@ pub struct JoinHashMap {
 impl JoinHashMap {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         JoinHashMap {
-            map: RawTable::with_capacity(capacity),
+            map: RawTable::with_capacity_in(capacity, douhua::RemoteAlloc::new()),
             next: vec![0; capacity],
         }
     }
 }
 
-/// Trait defining methods that must be implemented by a hash map type to be used for joins.
-pub trait JoinHashMapType {
-    /// The type of list used to store the hash values.
-    type NextType: IndexMut<usize, Output = u64>;
-    /// Extend with zero
-    fn extend_zero(&mut self, len: usize);
-    /// Returns mutable references to the hash map and the next.
-    fn get_mut(&mut self) -> (&mut RawTable<(u64, u64)>, &mut Self::NextType);
-    /// Returns a reference to the hash map.
-    fn get_map(&self) -> &RawTable<(u64, u64)>;
-    /// Returns a reference to the next.
-    fn get_list(&self) -> &Self::NextType;
-}
-
 /// Implementation of `JoinHashMapType` for `JoinHashMap`.
-impl JoinHashMapType for JoinHashMap {
-    type NextType = Vec<u64>;
-
+impl JoinHashMap {
     // Void implementation
-    fn extend_zero(&mut self, _: usize) {}
+    pub(crate) fn extend_zero(&mut self, _: usize) {}
 
     /// Get mutable references to the hash map and the next.
-    fn get_mut(&mut self) -> (&mut RawTable<(u64, u64)>, &mut Self::NextType) {
+    pub(crate) fn get_mut(
+        &mut self,
+    ) -> (
+        &mut RawTable<(u64, u64), douhua::RemoteAlloc>,
+        &mut Vec<u64>,
+    ) {
         (&mut self.map, &mut self.next)
     }
 
     /// Get a reference to the hash map.
-    fn get_map(&self) -> &RawTable<(u64, u64)> {
+    pub(crate) fn get_map(&self) -> &RawTable<(u64, u64), douhua::RemoteAlloc> {
         &self.map
     }
 
     /// Get a reference to the next.
-    fn get_list(&self) -> &Self::NextType {
+    pub(crate) fn get_list(&self) -> &Vec<u64> {
         &self.next
     }
 }

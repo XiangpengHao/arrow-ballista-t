@@ -27,9 +27,7 @@ use datafusion::physical_plan::{accept, ExecutionPlan, ExecutionPlanVisitor};
 use log::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::execution_plans::{
-    ShuffleWriter, ShuffleWriterExec, UnresolvedShuffleExec,
-};
+use ballista_core::execution_plans::{ShuffleWriterExec, UnresolvedShuffleExec};
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{job_status, FailedJob, ShuffleWritePartition};
@@ -149,7 +147,7 @@ impl ExecutionGraph {
             RemoteMemoryMode::DoNotUse
             | RemoteMemoryMode::FileBasedShuffle
             | RemoteMemoryMode::MemoryBasedShuffle => {
-                let mut planner = DistributedPlanner::<ShuffleWriterExec>::new(mode);
+                let mut planner = DistributedPlanner::new(mode);
                 let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
                 let builder = ExecutionStageBuilder::new();
@@ -1361,9 +1359,9 @@ impl ExecutionStageBuilder {
         }
     }
 
-    pub fn build<ShuffleW: ShuffleWriter + 'static>(
+    pub fn build(
         mut self,
-        stages: Vec<Arc<ShuffleW>>,
+        stages: Vec<Arc<ShuffleWriterExec>>,
     ) -> Result<HashMap<usize, ExecutionStage>> {
         let mut execution_stages: HashMap<usize, ExecutionStage> = HashMap::new();
         // First, build the dependency graph

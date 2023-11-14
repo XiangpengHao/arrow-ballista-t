@@ -28,35 +28,8 @@ mod shuffle_writer;
 mod unresolved_shuffle;
 mod utils;
 
-use datafusion::error::Result;
-use datafusion::physical_plan::{ExecutionPlan, Partitioning};
-use std::sync::Arc;
-
 pub use distributed_query::DistributedQueryExec;
 pub use hash_join::RMHashJoinExec;
 pub use shuffle_reader::ShuffleReaderExec;
 pub use shuffle_writer::ShuffleWriterExec;
 pub use unresolved_shuffle::UnresolvedShuffleExec;
-
-use crate::utils::RemoteMemoryMode;
-
-pub trait ShuffleWriter: Sized + ExecutionPlan {
-    fn job_id(&self) -> &str;
-
-    fn stage_id(&self) -> usize;
-
-    fn remote_memory_mode(&self) -> RemoteMemoryMode;
-
-    /// Get the true output partitioning
-    fn shuffle_output_partitioning(&self) -> Option<&Partitioning>;
-
-    /// Create a new shuffle writer
-    fn try_new(
-        job_id: String,
-        stage_id: usize,
-        plan: Arc<dyn ExecutionPlan>,
-        work_dir: String,
-        shuffle_output_partitioning: Option<Partitioning>,
-        remote_mode: RemoteMemoryMode,
-    ) -> Result<Self>;
-}

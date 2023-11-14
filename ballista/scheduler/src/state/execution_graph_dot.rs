@@ -20,8 +20,7 @@
 use crate::api::get_elapsed_compute_nanos;
 use crate::state::execution_graph::ExecutionGraph;
 use ballista_core::execution_plans::{
-    RMHashJoinExec, ShuffleReaderExec, ShuffleWriter, ShuffleWriterExec,
-    UnresolvedShuffleExec,
+    RMHashJoinExec, ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::{

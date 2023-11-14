@@ -21,7 +21,7 @@ services:
       image: alpine:latest
       command: /bin/sleep infinity
       ipc: "shareable"
-      shm_size: '2gb'
+      shm_size: '20gb'
   ballista-scheduler:
     image: ballista-scheduler
     build:
@@ -54,7 +54,7 @@ services:
     volumes:
       - ./benchmarks/data:/data
     ipc: "service:ipc-provider"
-    shm_size: 2gb
+    shm_size: 20gb
     depends_on:
       - ballista-scheduler
       - ipc-provider

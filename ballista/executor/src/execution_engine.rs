@@ -17,7 +17,7 @@
 
 use arrow::datatypes::SchemaRef;
 use async_trait::async_trait;
-use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
+use ballista_core::execution_plans::ShuffleWriterExec;
 use ballista_core::serde::protobuf::ShuffleWritePartition;
 use ballista_core::utils;
 use datafusion::error::{DataFusionError, Result};
@@ -89,18 +89,18 @@ impl ExecutionEngine for DefaultExecutionEngine {
 }
 
 #[derive(Debug)]
-pub struct DefaultQueryStageExec<ShuffleW: ShuffleWriter> {
-    shuffle_writer: ShuffleW,
+pub struct DefaultQueryStageExec {
+    shuffle_writer: ShuffleWriterExec,
 }
 
-impl<ShuffleW: ShuffleWriter> DefaultQueryStageExec<ShuffleW> {
-    pub fn new(shuffle_writer: ShuffleW) -> Self {
+impl DefaultQueryStageExec {
+    pub fn new(shuffle_writer: ShuffleWriterExec) -> Self {
         Self { shuffle_writer }
     }
 }
 
 #[async_trait]
-impl QueryStageExecutor for DefaultQueryStageExec<ShuffleWriterExec> {
+impl QueryStageExecutor for DefaultQueryStageExec {
     async fn execute_query_stage(
         &self,
         input_partition: usize,

@@ -204,7 +204,7 @@ mod test {
     use crate::metrics::LoggingMetricsCollector;
     use arrow::datatypes::{Schema, SchemaRef};
     use arrow::record_batch::RecordBatch;
-    use ballista_core::execution_plans::{ShuffleWriter, ShuffleWriterExec};
+    use ballista_core::execution_plans::ShuffleWriterExec;
     use ballista_core::serde::protobuf::ExecutorRegistration;
     use ballista_core::utils::RemoteMemoryMode;
     use datafusion::execution::context::TaskContext;

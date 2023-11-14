@@ -637,7 +637,7 @@ async fn fetch_partition_remote_memory_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution_plans::{ShuffleWriter, ShuffleWriterExec};
+    use crate::execution_plans::ShuffleWriterExec;
     use crate::serde::scheduler::{ExecutorMetadata, ExecutorSpecification, PartitionId};
     use crate::utils::{self, RemoteMemoryMode};
     use datafusion::arrow::array::{Int32Array, StringArray, UInt32Array};

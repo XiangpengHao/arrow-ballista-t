@@ -147,25 +147,57 @@ impl DistributedPlanner {
         } else if let Some(repart) =
             execution_plan.as_any().downcast_ref::<RepartitionExec>()
         {
-            match repart.output_partitioning() {
-                Partitioning::Hash(_, _) => {
-                    let shuffle_writer: Arc<ShuffleWriterExec> = create_shuffle_writer(
-                        job_id,
-                        self.next_stage_id(),
-                        children[0].clone(),
-                        Some(repart.partitioning().to_owned()),
-                        self.remote_memory_mode,
-                    )?;
-                    let unresolved_shuffle = create_unresolved_shuffle(
-                        shuffle_writer.as_ref(),
-                        self.remote_memory_mode,
-                    );
-                    stages.push(shuffle_writer);
-                    Ok((unresolved_shuffle, stages))
+            match self.remote_memory_mode {
+                RemoteMemoryMode::JoinOnRemote => {
+                    match repart.output_partitioning() {
+                        Partitioning::Hash(_, h_part_size) => {
+                            let new_part = Partitioning::RoundRobinBatch(h_part_size);
+                            let shuffle_writer: Arc<ShuffleWriterExec> =
+                                create_shuffle_writer(
+                                    job_id,
+                                    self.next_stage_id(),
+                                    children[0].clone(),
+                                    Some(new_part),
+                                    self.remote_memory_mode,
+                                )?;
+                            let unresolved_shuffle = create_unresolved_shuffle(
+                                shuffle_writer.as_ref(),
+                                self.remote_memory_mode,
+                            );
+                            stages.push(shuffle_writer);
+                            Ok((unresolved_shuffle, stages))
+                        }
+                        _ => {
+                            // remove any non-hash repartition from the distributed plan
+                            Ok((children[0].clone(), stages))
+                        }
+                    }
                 }
-                _ => {
-                    // remove any non-hash repartition from the distributed plan
-                    Ok((children[0].clone(), stages))
+                RemoteMemoryMode::DoNotUse
+                | RemoteMemoryMode::FileBasedShuffle
+                | RemoteMemoryMode::MemoryBasedShuffle => {
+                    match repart.output_partitioning() {
+                        Partitioning::Hash(_, _) => {
+                            let shuffle_writer: Arc<ShuffleWriterExec> =
+                                create_shuffle_writer(
+                                    job_id,
+                                    self.next_stage_id(),
+                                    children[0].clone(),
+                                    Some(repart.partitioning().to_owned()),
+                                    self.remote_memory_mode,
+                                )?;
+                            let unresolved_shuffle = create_unresolved_shuffle(
+                                shuffle_writer.as_ref(),
+                                self.remote_memory_mode,
+                            );
+                            stages.push(shuffle_writer);
+                            Ok((unresolved_shuffle, stages))
+                        }
+                        _ => {
+                            // remove any non-hash repartition from the distributed plan
+                            Ok((children[0].clone(), stages))
+                        }
+                    }
                 }
             }
         } else if let Some(window) =
@@ -282,22 +314,12 @@ pub fn remove_unresolved_shuffles(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-
-            match unresolved_shuffle.remote_memory_mode {
-                RemoteMemoryMode::DoNotUse
-                | RemoteMemoryMode::FileBasedShuffle
-                | RemoteMemoryMode::MemoryBasedShuffle => {
-                    new_children.push(Arc::new(ShuffleReaderExec::try_new(
-                        unresolved_shuffle.stage_id,
-                        relevant_locations,
-                        unresolved_shuffle.schema().clone(),
-                        unresolved_shuffle.remote_memory_mode,
-                    )?))
-                }
-                _ => {
-                    todo!()
-                }
-            }
+            new_children.push(Arc::new(ShuffleReaderExec::try_new(
+                unresolved_shuffle.stage_id,
+                relevant_locations,
+                unresolved_shuffle.schema().clone(),
+                unresolved_shuffle.remote_memory_mode,
+            )?))
         } else {
             new_children.push(remove_unresolved_shuffles(child, partition_locations)?);
         }

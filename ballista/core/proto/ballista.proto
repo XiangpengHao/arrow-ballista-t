@@ -62,8 +62,11 @@ message ShuffleWriterExecNode {
   string job_id = 1;
   uint32 stage_id = 2;
   datafusion.PhysicalPlanNode input = 3;
-  datafusion.PhysicalHashRepartition output_partitioning = 4;
-  RemoteMemoryMode remote_memory_mode = 5; 
+  RemoteMemoryMode remote_memory_mode = 4; 
+  oneof partition_method {
+    uint64 round_robin = 5;
+    datafusion.PhysicalHashRepartition hash = 6;
+  }
 }
 
 message UnresolvedShuffleExecNode {

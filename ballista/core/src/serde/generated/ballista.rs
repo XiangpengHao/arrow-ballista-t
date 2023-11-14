@@ -56,12 +56,23 @@ pub struct ShuffleWriterExecNode {
     pub stage_id: u32,
     #[prost(message, optional, tag = "3")]
     pub input: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
-    #[prost(message, optional, tag = "4")]
-    pub output_partitioning: ::core::option::Option<
-        ::datafusion_proto::protobuf::PhysicalHashRepartition,
-    >,
-    #[prost(enumeration = "RemoteMemoryMode", tag = "5")]
+    #[prost(enumeration = "RemoteMemoryMode", tag = "4")]
     pub remote_memory_mode: i32,
+    #[prost(oneof = "shuffle_writer_exec_node::PartitionMethod", tags = "5, 6")]
+    pub partition_method: ::core::option::Option<
+        shuffle_writer_exec_node::PartitionMethod,
+    >,
+}
+/// Nested message and enum types in `ShuffleWriterExecNode`.
+pub mod shuffle_writer_exec_node {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum PartitionMethod {
+        #[prost(uint64, tag = "5")]
+        RoundRobin(u64),
+        #[prost(message, tag = "6")]
+        Hash(::datafusion_proto::protobuf::PhysicalHashRepartition),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

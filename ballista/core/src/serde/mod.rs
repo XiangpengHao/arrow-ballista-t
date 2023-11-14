@@ -149,11 +149,24 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             PhysicalPlanType::ShuffleWriter(shuffle_writer) => {
                 let input = inputs[0].clone();
 
-                let shuffle_output_partitioning = parse_protobuf_hash_partitioning(
-                    shuffle_writer.output_partitioning.as_ref(),
-                    registry,
-                    input.schema().as_ref(),
-                )?;
+                let shuffle_output_partitioning = match shuffle_writer
+                    .partition_method
+                    .as_ref()
+                {
+                    Some(protobuf::shuffle_writer_exec_node::PartitionMethod::Hash(
+                        v,
+                    )) => parse_protobuf_hash_partitioning(
+                        Some(v),
+                        registry,
+                        input.schema().as_ref(),
+                    )?,
+                    Some(
+                        protobuf::shuffle_writer_exec_node::PartitionMethod::RoundRobin(
+                            v,
+                        ),
+                    ) => Some(Partitioning::RoundRobinBatch(*v as usize)),
+                    None => None,
+                };
 
                 let mode = protobuf::RemoteMemoryMode::from_i32(
                     shuffle_writer.remote_memory_mode,
@@ -310,14 +323,21 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             // to get the true output partitioning
             let output_partitioning = match exec.shuffle_output_partitioning() {
                 Some(Partitioning::Hash(exprs, partition_count)) => {
-                    Some(datafusion_proto::protobuf::PhysicalHashRepartition {
-                        hash_expr: exprs
-                            .iter()
-                            .map(|expr| expr.clone().try_into())
-                            .collect::<Result<Vec<_>, DataFusionError>>()?,
-                        partition_count: *partition_count as u64,
-                    })
+                    Some(protobuf::shuffle_writer_exec_node::PartitionMethod::Hash(
+                        datafusion_proto::protobuf::PhysicalHashRepartition {
+                            hash_expr: exprs
+                                .iter()
+                                .map(|expr| expr.clone().try_into())
+                                .collect::<Result<Vec<_>, DataFusionError>>()?,
+                            partition_count: *partition_count as u64,
+                        },
+                    ))
                 }
+                Some(Partitioning::RoundRobinBatch(partition_count)) => Some(
+                    protobuf::shuffle_writer_exec_node::PartitionMethod::RoundRobin(
+                        *partition_count as u64,
+                    ),
+                ),
                 None => None,
                 other => {
                     return Err(DataFusionError::Internal(format!(
@@ -334,7 +354,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         job_id: exec.job_id().to_string(),
                         stage_id: exec.stage_id() as u32,
                         input: None,
-                        output_partitioning,
+                        partition_method: output_partitioning,
                         remote_memory_mode: mode.into(),
                     },
                 )),

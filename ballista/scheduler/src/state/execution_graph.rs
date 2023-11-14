@@ -143,22 +143,11 @@ impl ExecutionGraph {
         queued_at: u64,
         mode: RemoteMemoryMode,
     ) -> Result<Self> {
-        let stages = match mode {
-            RemoteMemoryMode::DoNotUse
-            | RemoteMemoryMode::FileBasedShuffle
-            | RemoteMemoryMode::MemoryBasedShuffle => {
-                let mut planner = DistributedPlanner::new(mode);
-                let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
+        let mut planner = DistributedPlanner::new(mode);
+        let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-                let builder = ExecutionStageBuilder::new();
-                builder.build(shuffle_stages)?
-            }
-
-            RemoteMemoryMode::JoinOnRemote => {
-                todo!("not implemented yet");
-            }
-        };
-
+        let builder = ExecutionStageBuilder::new();
+        let stages = builder.build(shuffle_stages)?;
         let started_at = timestamp_millis();
         Ok(Self {
             job_id: job_id.to_string(),

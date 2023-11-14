@@ -469,7 +469,10 @@ impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
         _config: &datafusion::config::ConfigOptions,
     ) -> datafusion::error::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>>
     {
-        if !matches!(self.mode, RemoteMemoryMode::MemoryBasedShuffle) {
+        if !matches!(
+            self.mode,
+            RemoteMemoryMode::MemoryBasedShuffle | RemoteMemoryMode::JoinOnRemote
+        ) {
             return Ok(plan);
         }
         plan.transform_up(&|p| {

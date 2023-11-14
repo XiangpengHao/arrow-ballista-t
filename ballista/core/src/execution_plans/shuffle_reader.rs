@@ -311,15 +311,11 @@ fn send_fetch_partitions(
                 max_request_num,
             )
         }
-        RemoteMemoryMode::MemoryBasedShuffle => {
+        RemoteMemoryMode::MemoryBasedShuffle | RemoteMemoryMode::JoinOnRemote => {
             send_fetch_partitions_from_remote_memory_byte(
                 partition_locations,
                 max_request_num,
             )
-        }
-
-        _ => {
-            unreachable!()
         }
     }
 }

@@ -33,7 +33,7 @@ use datafusion::{
 use flatbuffers::FlatBufferBuilder;
 
 pub struct MemoryWriter {
-    ptr: *mut u8,
+    pub(super) ptr: *mut u8,
     capacity: usize,
     pub(super) offset: usize,
 }

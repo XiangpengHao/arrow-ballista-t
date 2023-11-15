@@ -20,7 +20,10 @@
 //! partition is re-partitioned and streamed to disk in Arrow IPC format. Future stages of the query
 //! will use the ShuffleReaderExec to read these results.
 
+use ahash::RandomState;
+use datafusion::logical_expr::utils::expr_as_column_expr;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
+use datafusion::physical_plan::hash_utils::create_hashes;
 
 use std::any::Any;
 use std::future::Future;
@@ -29,8 +32,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::execution_plans::join_utils::JoinHashMap;
 use crate::execution_plans::rm_writer::{
-    BuffedDirectWriter, SharedMemoryByteWriter, SharedMemoryFileWriter,
+    BuffedDirectWriter, SharedMemoryByteWriter, SharedMemoryFileWriter, MemoryReader, NoBufReader,
 };
 use crate::utils::{self, RemoteMemoryMode};
 
@@ -711,183 +715,114 @@ async fn execute_join_on_remote_shuffle_write(
             }])
         }
 
-        Some(Partitioning::Hash(exprs, num_output_partitions)) => {
-            // we won't necessary produce output for every possible partition, so we
-            // create writers on demand
-            let mut writers: Vec<Option<SharedMemoryByteWriter>> = vec![];
-            for _ in 0..num_output_partitions {
-                writers.push(None);
-            }
+        Some(Partitioning::Hash(exprs, _num_output_partitions)) => {
+            let mut idt = path.clone();
+            idt.push_str(&format!("-jointable-data-{input_partition}.arrow"));
 
-            let mut partitioner = BatchPartitioner::try_new(
-                Partitioning::Hash(exprs, num_output_partitions),
-                write_metrics.repart_time.clone(),
-            )?;
+            debug!("Writing results to {:?}", idt);
 
             // TODO: we need a real cardinality estimation here.
             let estimated_size_per_partition = 1024 * 1024 * 512;
 
-            while let Some(result) = stream.next().await {
-                let input_batch = result?;
-
-                write_metrics.input_rows.add(input_batch.num_rows());
-
-                partitioner.partition(
-                    input_batch,
-                    |output_partition, output_batch| {
-                        // partition func in datafusion make sure not write empty output_batch.
-                        let timer = write_metrics.write_time.timer();
-                        match &mut writers[output_partition] {
-                            Some(w) => {
-                                w.write(&output_batch)?;
-                            }
-                            None => {
-                                let mut idt = path.clone();
-                                idt.push_str(&format!(
-                                    "-{output_partition}-data-{input_partition}.arrow"
-                                ));
-
-                                debug!("Writing results to {:?}", idt);
-
-                                let mut writer = SharedMemoryByteWriter::new(
-                                    idt,
-                                    stream.schema().as_ref(),
-                                    estimated_size_per_partition,
-                                )?;
-
-                                writer.write(&output_batch)?;
-                                writers[output_partition] = Some(writer);
-                            }
-                        }
-                        write_metrics.output_rows.add(output_batch.num_rows());
-                        timer.done();
-                        Ok(())
-                    },
-                )?;
-            }
-
-            let mut part_locs = vec![];
-
-            for (i, w) in writers.iter_mut().enumerate() {
-                match w {
-                    Some(w) => {
-                        w.finish()?;
-                        info!(
-                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
-                                i,
-                                w.identifier(),
-                                w.num_batches,
-                                w.num_rows,
-                                w.num_bytes,
-                                w.get_physical_written_bytes()
-                            );
-
-                        let physical_size = w.get_physical_written_bytes();
-
-                        part_locs.push(ShuffleWritePartition {
-                            partition_id: i as u64,
-                            path: w.identifier().to_owned(),
-                            num_batches: w.num_batches,
-                            num_rows: w.num_rows,
-                            num_bytes: w.num_bytes,
-                            physical_bytes: physical_size as u64,
-                        });
-                    }
-                    None => {}
-                }
-            }
-            log::warn!("shuffle write metrics: {:?}", write_metrics);
-            Ok(part_locs)
-        }
-
-        Some(Partitioning::RoundRobinBatch(num_output_partitions)) => {
-            // we won't necessary produce output for every possible partition, so we
-            // create writers on demand
-            let mut writers: Vec<Option<SharedMemoryByteWriter>> = vec![];
-            for _ in 0..num_output_partitions {
-                writers.push(None);
-            }
-
-            let mut partitioner = BatchPartitioner::try_new(
-                Partitioning::RoundRobinBatch(num_output_partitions),
-                write_metrics.repart_time.clone(),
+            let mut writer = SharedMemoryByteWriter::new(
+                idt,
+                stream.schema().as_ref(),
+                estimated_size_per_partition,
             )?;
 
-            // TODO: we need a real cardinality estimation here.
-            let estimated_size_per_partition = 1024 * 1024 * 512;
+        
+            let mut total_row_cnt = 0;
 
             while let Some(result) = stream.next().await {
                 let input_batch = result?;
-
                 write_metrics.input_rows.add(input_batch.num_rows());
+                total_row_cnt += input_batch.num_rows();
 
-                partitioner.partition(
-                    input_batch,
-                    |output_partition, output_batch| {
-                        // partition func in datafusion make sure not write empty output_batch.
-                        let timer = write_metrics.write_time.timer();
-                        match &mut writers[output_partition] {
-                            Some(w) => {
-                                w.write(&output_batch)?;
-                            }
-                            None => {
-                                let mut idt = path.clone();
-                                idt.push_str(&format!(
-                                    "-{output_partition}-data-{input_partition}.arrow"
-                                ));
-
-                                debug!("Writing results to {:?}", idt);
-
-                                let mut writer = SharedMemoryByteWriter::new(
-                                    idt,
-                                    stream.schema().as_ref(),
-                                    estimated_size_per_partition,
-                                )?;
-
-                                writer.write(&output_batch)?;
-                                writers[output_partition] = Some(writer);
-                            }
-                        }
-                        write_metrics.output_rows.add(output_batch.num_rows());
-                        timer.done();
-                        Ok(())
-                    },
-                )?;
+                writer.write(&input_batch)?;
             }
 
             let mut part_locs = vec![];
 
-            for (i, w) in writers.iter_mut().enumerate() {
-                match w {
-                    Some(w) => {
-                        w.finish()?;
-                        info!(
-                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
-                                i,
-                                w.identifier(),
-                                w.num_batches,
-                                w.num_rows,
-                                w.num_bytes,
-                                w.get_physical_written_bytes()
+            writer.finish()?;
+
+            let physical_bytes = writer.get_physical_written_bytes();
+
+            info!(
+                                "Finished writing shuffle join table at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
+                                writer.identifier(),
+                                writer.num_batches,
+                                writer.num_rows,
+                                writer.num_bytes,
+                                physical_bytes 
                             );
 
-                        let physical_size = w.get_physical_written_bytes();
+            part_locs.push(ShuffleWritePartition {
+                partition_id: 0,
+                path: writer.identifier().to_owned(),
+                num_batches: writer.num_batches,
+                num_rows: writer.num_rows,
+                num_bytes: writer.num_bytes,
+                physical_bytes: physical_bytes as u64,
+            });
 
-                        part_locs.push(ShuffleWritePartition {
-                            partition_id: i as u64,
-                            path: w.identifier().to_owned(),
-                            num_batches: w.num_batches,
-                            num_rows: w.num_rows,
-                            num_bytes: w.num_bytes,
-                            physical_bytes: physical_size as u64,
-                        });
-                    }
-                    None => {}
-                }
-            }
             log::warn!("shuffle write metrics: {:?}", write_metrics);
+
+            let reader = MemoryReader::new(writer.writer.writer.ptr, physical_bytes);
+            let reader = NoBufReader::try_new(reader, None).unwrap();
+
+            let mut hashes_buffer: Vec<u64> = Vec::new();
+            let mut offset = 0;
+            let random_state = RandomState::with_seeds(0, 0, 0, 0);
+            let mut hashmap = JoinHashMap::with_capacity(total_row_cnt);
+
+            for b in reader{
+                let input_batch = b?;
+                hashes_buffer.clear();
+                hashes_buffer.resize(input_batch.num_rows(), 0);
+
+                let key_values = exprs
+                    .iter()
+                    .map(|c| {
+                        Ok(c.evaluate(&input_batch)?.into_array(input_batch.num_rows()))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let hash_values =
+                    create_hashes(&key_values, &random_state, &mut hashes_buffer)?;
+
+                let (mut_map, mut_list) = hashmap.get_mut();
+                for (row, hash_value) in hash_values.iter().enumerate() {
+                    let item =
+                        mut_map.get_mut(*hash_value, |(hash, _)| *hash_value == *hash);
+                    if let Some((_, index)) = item {
+                        // Already exists: add index to next array
+                        let prev_index = *index;
+                        // Store new value inside hashmap
+                        *index = (row + offset + 1) as u64;
+                        // Update chained Vec at row + offset with previous value
+                        mut_list[row + offset] = prev_index;
+                    } else {
+                        mut_map.insert(
+                            *hash_value,
+                            // store the value + 1 as 0 value reserved for end of list
+                            (*hash_value, (row + offset + 1) as u64),
+                            |(hash, _)| *hash,
+                        );
+                        // chained list at (row + offset) is already initialized with 0
+                        // meaning end of list
+                    }
+                }
+                offset += input_batch.num_rows();
+            }
             Ok(part_locs)
         }
+
+        Some(Partitioning::RoundRobinBatch(_num_output_partitions)) => {
+            Err(DataFusionError::Execution(
+                "Roundrobin parition is no longer supported!".to_owned(),
+            ))
+        }
+
         _ => Err(DataFusionError::Execution(
             "Invalid shuffle partitioning scheme".to_owned(),
         )),

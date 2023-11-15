@@ -795,6 +795,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 1)),
             RemoteMemoryMode::default(),
+            utils::JoinInputSide::NotApplicable
         )
         .unwrap();
 

@@ -505,7 +505,7 @@ pub fn get_time_before(interval_seconds: u64) -> u64 {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum JoinParentSide {
+pub enum JoinInputSide {
     Left,
     Right,
     NotApplicable,

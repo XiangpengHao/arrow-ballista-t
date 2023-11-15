@@ -37,7 +37,7 @@ use crate::serde::scheduler::{
 };
 
 use crate::serde::{protobuf, BallistaCodec};
-use crate::utils::RemoteMemoryMode;
+use crate::utils::{JoinInputSide, RemoteMemoryMode};
 use protobuf::{operator_metric, NamedCount, NamedGauge, NamedTime};
 
 use super::SimpleFunctionRegistry;
@@ -76,6 +76,17 @@ impl Into<RemoteMemoryMode> for protobuf::RemoteMemoryMode {
                 RemoteMemoryMode::MemoryBasedShuffle
             }
             protobuf::RemoteMemoryMode::JoinOnRemote => RemoteMemoryMode::JoinOnRemote,
+        }
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<JoinInputSide> for protobuf::JoinInputSide {
+    fn into(self) -> JoinInputSide {
+        match self {
+            protobuf::JoinInputSide::Left => JoinInputSide::Left,
+            protobuf::JoinInputSide::Right => JoinInputSide::Right,
+            protobuf::JoinInputSide::NotApplicable => JoinInputSide::NotApplicable,
         }
     }
 }

@@ -58,6 +58,8 @@ pub struct ShuffleWriterExecNode {
     pub input: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
     #[prost(enumeration = "RemoteMemoryMode", tag = "4")]
     pub remote_memory_mode: i32,
+    #[prost(enumeration = "JoinInputSide", tag = "7")]
+    pub join_input_side: i32,
     #[prost(oneof = "shuffle_writer_exec_node::PartitionMethod", tags = "5, 6")]
     pub partition_method: ::core::option::Option<
         shuffle_writer_exec_node::PartitionMethod,
@@ -1135,6 +1137,35 @@ impl RemoteMemoryMode {
             "file_based_shuffle" => Some(Self::FileBasedShuffle),
             "memory_based_shuffle" => Some(Self::MemoryBasedShuffle),
             "join_on_remote" => Some(Self::JoinOnRemote),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum JoinInputSide {
+    Left = 0,
+    Right = 1,
+    NotApplicable = 2,
+}
+impl JoinInputSide {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            JoinInputSide::Left => "left",
+            JoinInputSide::Right => "right",
+            JoinInputSide::NotApplicable => "not_applicable",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "not_applicable" => Some(Self::NotApplicable),
             _ => None,
         }
     }

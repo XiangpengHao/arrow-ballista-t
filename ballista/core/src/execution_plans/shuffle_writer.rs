@@ -21,7 +21,6 @@
 //! will use the ShuffleReaderExec to read these results.
 
 use ahash::RandomState;
-use datafusion::logical_expr::utils::expr_as_column_expr;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::hash_utils::create_hashes;
 
@@ -36,7 +35,7 @@ use crate::execution_plans::join_utils::JoinHashMap;
 use crate::execution_plans::rm_writer::{
     BuffedDirectWriter, SharedMemoryByteWriter, SharedMemoryFileWriter, MemoryReader, NoBufReader,
 };
-use crate::utils::{self, RemoteMemoryMode};
+use crate::utils::{self, RemoteMemoryMode, JoinInputSide};
 
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
@@ -84,6 +83,8 @@ pub struct ShuffleWriterExec {
     metrics: ExecutionPlanMetricsSet,
 
     remote_mode: RemoteMemoryMode,
+
+    join_input_side: JoinInputSide,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +135,10 @@ impl ShuffleWriterExec {
         self.remote_mode
     }
 
+    pub fn join_input_side(&self) -> JoinInputSide {
+        self.join_input_side
+    }
+
     /// Create a new shuffle writer
     pub fn try_new(
         job_id: String,
@@ -142,6 +147,7 @@ impl ShuffleWriterExec {
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
         remote_memory_mode: RemoteMemoryMode,
+        join_input_side: JoinInputSide,
     ) -> Result<Self> {
         Ok(Self {
             job_id,
@@ -151,6 +157,7 @@ impl ShuffleWriterExec {
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
             remote_mode: remote_memory_mode,
+            join_input_side,
         })
     }
 }
@@ -656,6 +663,98 @@ async fn execute_memory_based_remote_shuffle_write(
             Ok(part_locs)
         }
 
+        Some(Partitioning::RoundRobinBatch(num_output_partitions)) => {
+            // RounRobin partition happens when we deal with RHS join input.
+            // (FYI, the LHS join input will build the hash table)
+
+
+            // we won't necessary produce output for every possible partition, so we
+            // create writers on demand
+            let mut writers: Vec<Option<SharedMemoryByteWriter>> = vec![];
+            for _ in 0..num_output_partitions {
+                writers.push(None);
+            }
+
+            let mut partitioner = BatchPartitioner::try_new(
+                Partitioning::RoundRobinBatch(num_output_partitions),
+                write_metrics.repart_time.clone(),
+            )?;
+
+            // TODO: we need a real cardinality estimation here.
+            let estimated_size_per_partition = 1024 * 1024 * 512;
+            while let Some(result) = stream.next().await {
+                let input_batch = result?;
+
+                write_metrics.input_rows.add(input_batch.num_rows());
+
+                partitioner.partition(
+                    input_batch,
+                    |output_partition, output_batch| {
+                        // partition func in datafusion make sure not write empty output_batch.
+                        let timer = write_metrics.write_time.timer();
+                        match &mut writers[output_partition] {
+                            Some(w) => {
+                                w.write(&output_batch)?;
+                            }
+                            None => {
+                                let mut idt = path.clone();
+                                idt.push_str(&format!(
+                                    "-{output_partition}-data-{input_partition}.arrow"
+                                ));
+
+                                debug!("Writing results to {:?}", idt);
+
+                                let mut writer = SharedMemoryByteWriter::new(
+                                    idt,
+                                    stream.schema().as_ref(),
+                                    estimated_size_per_partition,
+                                )?;
+
+                                writer.write(&output_batch)?;
+                                writers[output_partition] = Some(writer);
+                            }
+                        }
+                        write_metrics.output_rows.add(output_batch.num_rows());
+                        timer.done();
+                        Ok(())
+                    },
+                )?;
+            }
+
+            let mut part_locs = vec![];
+
+            for (i, w) in writers.iter_mut().enumerate() {
+                match w {
+                    Some(w) => {
+                        w.finish()?;
+                        info!(
+                                "Finished writing shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
+                                i,
+                                w.identifier(),
+                                w.num_batches,
+                                w.num_rows,
+                                w.num_bytes,
+                                w.get_physical_written_bytes()
+                            );
+
+                        let physical_size = w.get_physical_written_bytes();
+
+                        part_locs.push(ShuffleWritePartition {
+                            partition_id: i as u64,
+                            path: w.identifier().to_owned(),
+                            num_batches: w.num_batches,
+                            num_rows: w.num_rows,
+                            num_bytes: w.num_bytes,
+                            physical_bytes: physical_size as u64,
+                        });
+                    }
+                    None => {}
+                }
+            }
+            log::warn!("shuffle write metrics: {:?}", write_metrics);
+            Ok(part_locs)
+        }
+
         _ => Err(DataFusionError::Execution(
             "Invalid shuffle partitioning scheme".to_owned(),
         )),
@@ -747,14 +846,13 @@ async fn execute_join_on_remote_shuffle_write(
 
             let physical_bytes = writer.get_physical_written_bytes();
 
-            info!(
-                                "Finished writing shuffle join table at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
-                                writer.identifier(),
-                                writer.num_batches,
-                                writer.num_rows,
-                                writer.num_bytes,
-                                physical_bytes 
-                            );
+            info!("Finished writing shuffle join table at {:?}. Batches: {}. Rows: {}. Bytes: {}. Physical: {}",
+                    writer.identifier(),
+                    writer.num_batches,
+                    writer.num_rows,
+                    writer.num_bytes,
+                    physical_bytes 
+                );
 
             part_locs.push(ShuffleWritePartition {
                 partition_id: 0,
@@ -865,6 +963,7 @@ impl ExecutionPlan for ShuffleWriterExec {
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
             self.remote_mode,
+            self.join_input_side
         )?))
     }
 
@@ -999,6 +1098,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
             RemoteMemoryMode::default(),
+            JoinInputSide::NotApplicable
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)
@@ -1059,6 +1159,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
             RemoteMemoryMode::default(),
+            JoinInputSide::NotApplicable
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)

@@ -21,13 +21,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::execution_plans::ShuffleWriterExec;
-use ballista_core::utils::RemoteMemoryMode;
+use ballista_core::execution_plans::{RMHashJoinExec, ShuffleWriterExec};
+use ballista_core::utils::{JoinInputSide, RemoteMemoryMode};
 use ballista_core::{
     execution_plans::{ShuffleReaderExec, UnresolvedShuffleExec},
     serde::scheduler::PartitionLocation,
 };
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::joins::HashJoinExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::windows::WindowAggExec;
@@ -87,6 +88,7 @@ impl DistributedPlanner {
         &'a mut self,
         job_id: &'a str,
         execution_plan: Arc<dyn ExecutionPlan>,
+        parent_side: JoinInputSide,
     ) -> Result<(Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>)> {
         // recurse down and replace children
         if execution_plan.children().is_empty() {
@@ -95,11 +97,31 @@ impl DistributedPlanner {
 
         let mut stages = vec![];
         let mut children = vec![];
-        for child in execution_plan.children() {
-            let (new_child, mut child_stages) =
-                self.plan_query_stages_internal(job_id, child.clone())?;
-            children.push(new_child);
-            stages.append(&mut child_stages);
+
+        if let Some(hash_join) = execution_plan.as_any().downcast_ref::<RMHashJoinExec>()
+        {
+            let (left_child, mut left_stages) = self.plan_query_stages_internal(
+                job_id,
+                hash_join.left().clone(),
+                JoinInputSide::Left,
+            )?;
+            children.push(left_child);
+            stages.append(&mut left_stages);
+
+            let (right_child, mut right_stages) = self.plan_query_stages_internal(
+                job_id,
+                hash_join.right().clone(),
+                JoinInputSide::Right,
+            )?;
+            children.push(right_child);
+            stages.append(&mut right_stages);
+        } else {
+            for child in execution_plan.children() {
+                let (new_child, mut child_stages) =
+                    self.plan_query_stages_internal(job_id, child.clone(), parent_side)?;
+                children.push(new_child);
+                stages.append(&mut child_stages);
+            }
         }
 
         if let Some(_coalesce) = execution_plan
@@ -243,6 +265,7 @@ fn create_shuffle_writer(
     plan: Arc<dyn ExecutionPlan>,
     partitioning: Option<Partitioning>,
     mode: RemoteMemoryMode,
+    join_side: JoinInputSide,
 ) -> Result<Arc<ShuffleWriterExec>> {
     Ok(Arc::new(ShuffleWriterExec::try_new(
         job_id.to_owned(),

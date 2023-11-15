@@ -22,7 +22,7 @@ use std::convert::TryInto;
 use crate::error::BallistaError;
 
 use crate::serde::protobuf;
-use crate::utils::RemoteMemoryMode;
+use crate::utils::{RemoteMemoryMode, JoinInputSide};
 use datafusion_proto::protobuf as datafusion_protobuf;
 
 use crate::serde::scheduler::{
@@ -229,6 +229,16 @@ impl Into<protobuf::RemoteMemoryMode> for RemoteMemoryMode {
                 protobuf::RemoteMemoryMode::MemoryBasedShuffle
             }
             RemoteMemoryMode::JoinOnRemote => protobuf::RemoteMemoryMode::JoinOnRemote,
+        }
+    }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<protbuf::JoinInputSide> for JoinInputSide {
+    fn into(self) -> protbuf::JoinInputSide {
+        match self {
+            JoinInputSide::Left => protbuf::JoinInputSide::Left,
+            JoinInputSide::Right => protbuf::JoinInputSide::Right,
         }
     }
 }

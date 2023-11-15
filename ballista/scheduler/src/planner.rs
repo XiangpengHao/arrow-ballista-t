@@ -28,7 +28,6 @@ use ballista_core::{
     serde::scheduler::PartitionLocation,
 };
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::joins::HashJoinExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::windows::WindowAggExec;
@@ -68,14 +67,18 @@ impl DistributedPlanner {
         execution_plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Vec<Arc<ShuffleWriterExec>>> {
         info!("planning query stages for job {}", job_id);
-        let (new_plan, mut stages) =
-            self.plan_query_stages_internal(job_id, execution_plan)?;
+        let (new_plan, mut stages) = self.plan_query_stages_internal(
+            job_id,
+            execution_plan,
+            JoinInputSide::NotApplicable,
+        )?;
         stages.push(create_shuffle_writer(
             job_id,
             self.next_stage_id(),
             new_plan,
             None,
             self.remote_memory_mode,
+            JoinInputSide::NotApplicable,
         )?);
         Ok(stages)
     }
@@ -88,7 +91,7 @@ impl DistributedPlanner {
         &'a mut self,
         job_id: &'a str,
         execution_plan: Arc<dyn ExecutionPlan>,
-        parent_side: JoinInputSide,
+        join_input_side: JoinInputSide,
     ) -> Result<(Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>)> {
         // recurse down and replace children
         if execution_plan.children().is_empty() {
@@ -117,8 +120,11 @@ impl DistributedPlanner {
             stages.append(&mut right_stages);
         } else {
             for child in execution_plan.children() {
-                let (new_child, mut child_stages) =
-                    self.plan_query_stages_internal(job_id, child.clone(), parent_side)?;
+                let (new_child, mut child_stages) = self.plan_query_stages_internal(
+                    job_id,
+                    child.clone(),
+                    join_input_side,
+                )?;
                 children.push(new_child);
                 stages.append(&mut child_stages);
             }
@@ -134,6 +140,7 @@ impl DistributedPlanner {
                 children[0].clone(),
                 None,
                 self.remote_memory_mode,
+                JoinInputSide::NotApplicable,
             )?;
             let unresolved_shuffle = create_unresolved_shuffle(
                 shuffle_writer.as_ref(),
@@ -155,6 +162,7 @@ impl DistributedPlanner {
                 children[0].clone(),
                 None,
                 self.remote_memory_mode,
+                JoinInputSide::NotApplicable,
             )?;
             let unresolved_shuffle = create_unresolved_shuffle(
                 shuffle_writer.as_ref(),
@@ -171,8 +179,10 @@ impl DistributedPlanner {
         {
             match self.remote_memory_mode {
                 RemoteMemoryMode::JoinOnRemote => {
-                    match repart.output_partitioning() {
-                        Partitioning::Hash(_, h_part_size) => {
+                    // Here, if we are on LHS of a join, we need to build hash table during the "shuffle"
+                    // if we are on RHS of a join, we should not write to remote memory.
+                    match (repart.output_partitioning(), join_input_side) {
+                        (Partitioning::Hash(_, h_part_size), JoinInputSide::Left) => {
                             let new_part = Partitioning::RoundRobinBatch(h_part_size);
                             let shuffle_writer: Arc<ShuffleWriterExec> =
                                 create_shuffle_writer(
@@ -181,6 +191,24 @@ impl DistributedPlanner {
                                     children[0].clone(),
                                     Some(new_part),
                                     self.remote_memory_mode,
+                                    join_input_side,
+                                )?;
+                            let unresolved_shuffle = create_unresolved_shuffle(
+                                shuffle_writer.as_ref(),
+                                self.remote_memory_mode,
+                            );
+                            stages.push(shuffle_writer);
+                            Ok((unresolved_shuffle, stages))
+                        }
+                        (Partitioning::Hash(_, _), JoinInputSide::Right) => {
+                            let shuffle_writer: Arc<ShuffleWriterExec> =
+                                create_shuffle_writer(
+                                    job_id,
+                                    self.next_stage_id(),
+                                    children[0].clone(),
+                                    Some(repart.partitioning().to_owned()),
+                                    RemoteMemoryMode::FileBasedShuffle,
+                                    join_input_side,
                                 )?;
                             let unresolved_shuffle = create_unresolved_shuffle(
                                 shuffle_writer.as_ref(),
@@ -207,6 +235,7 @@ impl DistributedPlanner {
                                     children[0].clone(),
                                     Some(repart.partitioning().to_owned()),
                                     self.remote_memory_mode,
+                                    join_input_side,
                                 )?;
                             let unresolved_shuffle = create_unresolved_shuffle(
                                 shuffle_writer.as_ref(),
@@ -274,6 +303,7 @@ fn create_shuffle_writer(
         "".to_owned(), // executor will decide on the work_dir path
         partitioning,
         mode,
+        join_side,
     )?))
 }
 

@@ -184,7 +184,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
                     mode.into(),
-                    join_input_side,
+                    join_input_side.into(),
                 )?))
             }
             PhysicalPlanType::ShuffleReader(shuffle_reader) => {

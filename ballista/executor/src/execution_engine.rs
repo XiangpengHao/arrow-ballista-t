@@ -76,6 +76,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
                 shuffle_writer.remote_memory_mode(),
+                shuffle_writer.join_input_side(),
             )?;
 
             Ok(Arc::new(DefaultQueryStageExec::new(exec)))

@@ -206,7 +206,7 @@ mod test {
     use arrow::record_batch::RecordBatch;
     use ballista_core::execution_plans::ShuffleWriterExec;
     use ballista_core::serde::protobuf::ExecutorRegistration;
-    use ballista_core::utils::RemoteMemoryMode;
+    use ballista_core::utils::{JoinInputSide, RemoteMemoryMode};
     use datafusion::execution::context::TaskContext;
 
     use crate::execution_engine::DefaultQueryStageExec;
@@ -321,6 +321,7 @@ mod test {
             work_dir.clone(),
             None,
             RemoteMemoryMode::default(),
+            JoinInputSide::NotApplicable,
         )
         .expect("creating shuffle writer");
 

@@ -57,6 +57,9 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::rm_writer::{MemoryReader, NoBufReader};
 
+static JOIN_STATE: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
 /// being executed by an executor
 #[derive(Debug, Clone)]
@@ -155,6 +158,15 @@ impl ExecutionPlan for ShuffleReaderExec {
             .collect();
         // Shuffle partitions for evenly send fetching partition requests to avoid hot executors within multiple tasks
         partition_locations.shuffle(&mut thread_rng());
+
+        if matches!(self.remote_mode, RemoteMemoryMode::JoinOnRemote) {
+            assert!(partition_locations.len() == 1);
+            let mut join_state = JOIN_STATE.lock().unwrap();
+            let loc = partition_locations.first().unwrap();
+            let rt =
+                join_state.insert("shuffle_partition_path".to_string(), loc.path.clone());
+            assert!(rt.is_none());
+        }
 
         let response_receiver =
             send_fetch_partitions(partition_locations, max_request_num, self.remote_mode);
@@ -795,7 +807,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 1)),
             RemoteMemoryMode::default(),
-            utils::JoinInputSide::NotApplicable
+            utils::JoinInputSide::NotApplicable,
         )
         .unwrap();
 

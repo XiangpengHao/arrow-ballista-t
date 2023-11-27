@@ -22,6 +22,7 @@
 mod distributed_query;
 mod hash_join;
 mod join_utils;
+pub mod remote_once_alloc;
 mod rm_writer;
 mod shuffle_reader;
 mod shuffle_writer;

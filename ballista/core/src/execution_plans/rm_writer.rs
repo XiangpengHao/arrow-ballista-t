@@ -333,7 +333,7 @@ impl<W: Write> NoBuffWriter<W> {
     /// Write a record batch to the file
     pub fn write(&mut self, batch: &RecordBatch) -> Result<()> {
         if self.finished {
-            return Err(ArrowError::IoError(
+            return Err(ArrowError::IpcError(
                 "Cannot write record batch to file writer as it is closed".to_string(),
             ));
         }
@@ -369,7 +369,7 @@ impl<W: Write> NoBuffWriter<W> {
     /// Write footer and closing tag, then mark the writer as done
     pub fn finish(&mut self) -> Result<()> {
         if self.finished {
-            return Err(ArrowError::IoError(
+            return Err(ArrowError::IpcError(
                 "Cannot write footer to file writer as it is closed".to_string(),
             ));
         }
@@ -537,14 +537,14 @@ impl<R: Read + Seek> NoBufReader<R> {
         let mut magic_buffer: [u8; 6] = [0; 6];
         reader.read_exact(&mut magic_buffer)?;
         if magic_buffer != ARROW_MAGIC {
-            return Err(ArrowError::IoError(
+            return Err(ArrowError::IpcError(
                 "Arrow file does not contain correct header".to_string(),
             ));
         }
         reader.seek(SeekFrom::End(-6))?;
         reader.read_exact(&mut magic_buffer)?;
         if magic_buffer != ARROW_MAGIC {
-            return Err(ArrowError::IoError(
+            return Err(ArrowError::IpcError(
                 format!(
                     "Arrow file does not contain correct footer: {:?}",
                     magic_buffer
@@ -564,11 +564,11 @@ impl<R: Read + Seek> NoBufReader<R> {
         reader.read_exact(&mut footer_data)?;
 
         let footer = root_as_footer(&footer_data[..]).map_err(|err| {
-            ArrowError::IoError(format!("Unable to get root as footer: {err:?}"))
+            ArrowError::IpcError(format!("Unable to get root as footer: {err:?}"))
         })?;
 
         let blocks = footer.recordBatches().ok_or_else(|| {
-            ArrowError::IoError(
+            ArrowError::IpcError(
                 "Unable to get record batches from IPC Footer".to_string(),
             )
         })?;
@@ -595,7 +595,9 @@ impl<R: Read + Seek> NoBufReader<R> {
                 reader.read_exact(&mut block_data)?;
 
                 let message = root_as_message(&block_data[..]).map_err(|err| {
-                    ArrowError::IoError(format!("Unable to get root as message: {err:?}"))
+                    ArrowError::IpcError(format!(
+                        "Unable to get root as message: {err:?}"
+                    ))
                 })?;
 
                 match message.header_type() {
@@ -619,7 +621,7 @@ impl<R: Read + Seek> NoBufReader<R> {
                         )?;
                     }
                     t => {
-                        return Err(ArrowError::IoError(format!(
+                        return Err(ArrowError::IpcError(format!(
                             "Expecting DictionaryBatch in dictionary blocks, found {t:?}."
                         )));
                     }
@@ -668,25 +670,25 @@ impl<R: Read + Seek> NoBufReader<R> {
         let mut block_data = vec![0; meta_len as usize];
         self.reader.read_exact(&mut block_data)?;
         let message = root_as_message(&block_data[..]).map_err(|err| {
-            ArrowError::IoError(format!("Unable to get root as footer: {err:?}"))
+            ArrowError::IpcError(format!("Unable to get root as footer: {err:?}"))
         })?;
 
         // some old test data's footer metadata is not set, so we account for that
         if self.metadata_version != MetadataVersion::V1
             && message.version() != self.metadata_version
         {
-            return Err(ArrowError::IoError(
+            return Err(ArrowError::IpcError(
                 "Could not read IPC message as metadata versions mismatch".to_string(),
             ));
         }
 
         match message.header_type() {
-            MessageHeader::Schema => Err(ArrowError::IoError(
+            MessageHeader::Schema => Err(ArrowError::IpcError(
                 "Not expecting a schema when messages are read".to_string(),
             )),
             MessageHeader::RecordBatch => {
                 let batch = message.header_as_record_batch().ok_or_else(|| {
-                    ArrowError::IoError(
+                    ArrowError::IpcError(
                         "Unable to read IPC message as record batch".to_string(),
                     )
                 })?;
@@ -710,7 +712,7 @@ impl<R: Read + Seek> NoBufReader<R> {
             MessageHeader::NONE => {
                 Ok(None)
             }
-            t => Err(ArrowError::IoError(format!(
+            t => Err(ArrowError::IpcError(format!(
                 "Reading types other than record batches not yet supported, unable to read {t:?}"
             ))),
         }

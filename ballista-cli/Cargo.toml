@@ -32,7 +32,7 @@ readme = "README.md"
 ballista = { path = "../ballista/client", version = "0.11.0" }
 clap = { version = "3", features = ["derive", "cargo"] }
 datafusion = { workspace = true }
-datafusion-cli = "31.0.0"
+datafusion-cli = "33.0.0"
 tokio = { workspace = true }
 dirs = "5.0.1"
 env_logger = "0.10"

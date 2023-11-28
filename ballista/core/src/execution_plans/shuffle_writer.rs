@@ -898,7 +898,7 @@ async fn execute_join_on_remote_shuffle_write(
                 let key_values = exprs
                     .iter()
                     .map(|c| {
-                        Ok(c.evaluate(&input_batch)?.into_array(input_batch.num_rows()))
+                        Ok(c.evaluate(&input_batch)?.into_array(input_batch.num_rows()).unwrap())
                     })
                     .collect::<Result<Vec<_>>>()?;
 
@@ -1068,7 +1068,7 @@ impl ExecutionPlan for ShuffleWriterExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn statistics(&self) -> Statistics {
+    fn statistics(&self) -> Result< Statistics> {
         self.plan.statistics()
     }
 }

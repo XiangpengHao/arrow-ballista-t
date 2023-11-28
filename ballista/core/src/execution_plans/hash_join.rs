@@ -28,10 +28,8 @@ use datafusion::arrow;
 use datafusion::arrow::array::downcast_array;
 use datafusion::arrow::error::ArrowError;
 use datafusion::execution::memory_pool::{MemoryConsumer, MemoryReservation};
-use datafusion::physical_plan::joins::utils::{
-    calculate_join_output_ordering, combine_join_ordering_equivalence_properties,
-    JoinSide,
-};
+use datafusion::physical_expr::equivalence::join_equivalence_properties;
+use datafusion::physical_plan::joins::utils::calculate_join_output_ordering;
 use datafusion::physical_plan::joins::PartitionMode;
 use datafusion::physical_plan::DisplayAs;
 use datafusion::physical_plan::{
@@ -42,8 +40,7 @@ use datafusion::physical_plan::{
     hash_utils::create_hashes,
     joins::utils::{
         adjust_right_output_partitioning, build_join_schema, check_join_is_valid,
-        combine_join_equivalence_properties, partitioned_join_output_partitioning,
-        ColumnIndex, JoinFilter, JoinOn,
+        partitioned_join_output_partitioning, ColumnIndex, JoinFilter, JoinOn,
     },
     metrics::{ExecutionPlanMetricsSet, MetricsSet},
     DisplayFormatType, Distribution, ExecutionPlan, Partitioning, PhysicalExpr,
@@ -59,10 +56,10 @@ use arrow::datatypes::{Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use arrow::util::bit_util;
 use datafusion::common::{
-    exec_err, internal_err, plan_err, DataFusionError, JoinType, Result,
+    exec_err, internal_err, plan_err, DataFusionError, JoinSide, JoinType, Result,
 };
 use datafusion::execution::TaskContext;
-use datafusion::physical_expr::{EquivalenceProperties, OrderingEquivalenceProperties};
+use datafusion::physical_expr::EquivalenceProperties;
 
 use ahash::RandomState;
 use arrow::compute::kernels::cmp::{eq, not_distinct};
@@ -151,7 +148,7 @@ impl RMHashJoinExec {
             left_schema.fields.len(),
             &Self::maintains_input_order(*join_type),
             Some(Self::probe_side()),
-        )?;
+        );
 
         Ok(RMHashJoinExec {
             left,
@@ -372,28 +369,15 @@ impl ExecutionPlan for RMHashJoinExec {
     }
 
     fn equivalence_properties(&self) -> EquivalenceProperties {
-        let left_columns_len = self.left.schema().fields.len();
-        combine_join_equivalence_properties(
-            self.join_type,
+        join_equivalence_properties(
             self.left.equivalence_properties(),
             self.right.equivalence_properties(),
-            left_columns_len,
-            self.on(),
-            self.schema(),
-        )
-    }
-
-    fn ordering_equivalence_properties(&self) -> OrderingEquivalenceProperties {
-        combine_join_ordering_equivalence_properties(
             &self.join_type,
-            &self.left,
-            &self.right,
             self.schema(),
             &self.maintains_input_order(),
             Some(Self::probe_side()),
-            self.equivalence_properties(),
+            self.on(),
         )
-        .unwrap()
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
@@ -500,7 +484,7 @@ impl ExecutionPlan for RMHashJoinExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn statistics(&self) -> Statistics {
+    fn statistics(&self) -> Result<Statistics> {
         // TODO stats: it is not possible in general to know the output size of joins
         // There are some special cases though, for example:
         // - `A LEFT JOIN B ON A.col=B.col` with `COUNT_DISTINCT(B.col)=COUNT(B.col)`
@@ -621,7 +605,7 @@ pub fn update_hash(
     // evaluate the keys
     let keys_values = on
         .iter()
-        .map(|c| Ok(c.evaluate(batch)?.into_array(batch.num_rows())))
+        .map(|c| Ok(c.evaluate(batch)?.into_array(batch.num_rows()).unwrap()))
         .collect::<Result<Vec<_>>>()?;
 
     // calculate the hash values
@@ -740,13 +724,18 @@ pub fn build_equal_condition_join_indices(
 ) -> Result<(UInt64Array, UInt32Array)> {
     let keys_values = probe_on
         .iter()
-        .map(|c| Ok(c.evaluate(probe_batch)?.into_array(probe_batch.num_rows())))
+        .map(|c| {
+            Ok(c.evaluate(probe_batch)?
+                .into_array(probe_batch.num_rows())
+                .unwrap())
+        })
         .collect::<Result<Vec<_>>>()?;
     let build_join_values = build_on
         .iter()
         .map(|c| {
             Ok(c.evaluate(build_input_buffer)?
-                .into_array(build_input_buffer.num_rows()))
+                .into_array(build_input_buffer.num_rows())
+                .unwrap())
         })
         .collect::<Result<Vec<_>>>()?;
     hashes_buffer.clear();

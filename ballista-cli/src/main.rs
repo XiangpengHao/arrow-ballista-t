@@ -23,6 +23,7 @@ use ballista_cli::{
     exec, print_format::PrintFormat, print_options::PrintOptions, BALLISTA_CLI_VERSION,
 };
 use clap::Parser;
+use datafusion_cli::print_options::MaxRows;
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -129,6 +130,7 @@ pub async fn main() -> Result<()> {
     let print_options = PrintOptions {
         format: args.format,
         quiet: args.quiet,
+        maxrows: MaxRows::Unlimited,
     };
 
     let files = args.file;

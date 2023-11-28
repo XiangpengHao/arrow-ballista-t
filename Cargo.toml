@@ -34,16 +34,16 @@ default-members = [
 resolver = "2"
 
 [workspace.dependencies]
-arrow = { version = "46.0.0" }
-arrow-flight = { version = "46.0.0", features = ["flight-sql-experimental"] }
+arrow = { version = "48.0.0" }
+arrow-flight = { version = "48.0.0", features = ["flight-sql-experimental"] }
 configure_me = { version = "0.4.0" }
 configure_me_codegen = { version = "0.4.4" }
-datafusion = "31.0.0"
-datafusion-proto = "31.0.0"
+datafusion = "33.0.0"
+datafusion-proto = "33.0.0"
 object_store = { version = "0.7", default-features = false }
-sqlparser = "0.37.0"
-tonic = { version = "0.9" }
-tonic-build = { version = "0.9", default-features = false, features = [
+sqlparser = "0.39.0"
+tonic = { version = "0.10" }
+tonic-build = { version = "0.10", default-features = false, features = [
     "transport",
     "prost",
 ] }

@@ -33,13 +33,14 @@ use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::ipc::reader::FileReader;
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
+use datafusion::common::stats::Precision;
 
 use datafusion::error::Result;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
-    SendableRecordBatchStream, Statistics,
+    ColumnStatistics, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning,
+    RecordBatchStream, SendableRecordBatchStream, Statistics,
 };
 use futures::{Stream, StreamExt, TryStreamExt};
 
@@ -182,13 +183,14 @@ impl ExecutionPlan for ShuffleReaderExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn statistics(&self) -> Statistics {
-        stats_for_partitions(
+    fn statistics(&self) -> Result<Statistics> {
+        Ok(stats_for_partitions(
+            self.schema.fields().len(),
             self.partition
                 .iter()
                 .flatten()
                 .map(|loc| loc.partition_stats),
-        )
+        ))
     }
 }
 
@@ -212,26 +214,27 @@ impl DisplayAs for ShuffleReaderExec {
 }
 
 fn stats_for_partitions(
+    num_fields: usize,
     partition_stats: impl Iterator<Item = PartitionStats>,
 ) -> Statistics {
     // TODO stats: add column statistics to PartitionStats
-    partition_stats.fold(
-        Statistics {
-            is_exact: true,
-            num_rows: Some(0),
-            total_byte_size: Some(0),
-            column_statistics: None,
-        },
-        |mut acc, part| {
+    let (num_rows, total_byte_size) =
+        partition_stats.fold((Some(0), Some(0)), |(num_rows, total_byte_size), part| {
             // if any statistic is unkown it makes the entire statistic unkown
-            acc.num_rows = acc.num_rows.zip(part.num_rows).map(|(a, b)| a + b as usize);
-            acc.total_byte_size = acc
-                .total_byte_size
+            let num_rows = num_rows.zip(part.num_rows).map(|(a, b)| a + b as usize);
+            let total_byte_size = total_byte_size
                 .zip(part.num_bytes)
                 .map(|(a, b)| a + b as usize);
-            acc
-        },
-    )
+            (num_rows, total_byte_size)
+        });
+
+    Statistics {
+        num_rows: num_rows.map(Precision::Exact).unwrap_or(Precision::Absent),
+        total_byte_size: total_byte_size
+            .map(Precision::Exact)
+            .unwrap_or(Precision::Absent),
+        column_statistics: vec![ColumnStatistics::new_unknown(); num_fields],
+    }
 }
 
 pub(super) struct LocalShuffleStream<
@@ -661,13 +664,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_stats_for_partitions_empty() {
-        let result = stats_for_partitions(std::iter::empty());
+        let result = stats_for_partitions(0, std::iter::empty());
 
         let exptected = Statistics {
-            is_exact: true,
-            num_rows: Some(0),
-            total_byte_size: Some(0),
-            column_statistics: None,
+            num_rows: Precision::Exact(0),
+            total_byte_size: Precision::Exact(0),
+            column_statistics: vec![],
         };
 
         assert_eq!(result, exptected);
@@ -690,13 +692,12 @@ mod tests {
             },
         ];
 
-        let result = stats_for_partitions(part_stats.into_iter());
+        let result = stats_for_partitions(0, part_stats.into_iter());
 
         let exptected = Statistics {
-            is_exact: true,
-            num_rows: Some(14),
-            total_byte_size: Some(149),
-            column_statistics: None,
+            num_rows: Precision::Exact(14),
+            total_byte_size: Precision::Exact(149),
+            column_statistics: vec![],
         };
 
         assert_eq!(result, exptected);
@@ -719,13 +720,12 @@ mod tests {
             },
         ];
 
-        let result = stats_for_partitions(part_stats.into_iter());
+        let result = stats_for_partitions(0, part_stats.into_iter());
 
         let exptected = Statistics {
-            is_exact: true,
-            num_rows: None,
-            total_byte_size: None,
-            column_statistics: None,
+            num_rows: Precision::Absent,
+            total_byte_size: Precision::Absent,
+            column_statistics: vec![],
         };
 
         assert_eq!(result, exptected);

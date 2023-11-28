@@ -31,12 +31,10 @@ use datafusion::arrow::compute;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use datafusion::common::cast::as_boolean_array;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DataFusionError, JoinSide, Result};
 use datafusion::error::SharedResult;
 
-use datafusion::physical_plan::joins::utils::{
-    ColumnIndex, JoinFilter, JoinOn, JoinSide,
-};
+use datafusion::physical_plan::joins::utils::{ColumnIndex, JoinFilter, JoinOn};
 use datafusion::physical_plan::metrics::{self, ExecutionPlanMetricsSet, MetricBuilder};
 use datafusion::physical_plan::{ExecutionPlan, Statistics};
 use datafusion::prelude::JoinType;
@@ -197,7 +195,8 @@ pub(crate) fn apply_join_filter_to_indices(
     let filter_result = filter
         .expression()
         .evaluate(&intermediate_batch)?
-        .into_array(intermediate_batch.num_rows());
+        .into_array(intermediate_batch.num_rows())
+        .unwrap();
     let mask = as_boolean_array(&filter_result)?;
 
     let left_filtered = compute::filter(&build_indices, mask)?;
@@ -582,7 +581,7 @@ pub(crate) fn estimate_join_statistics(
     _on: JoinOn,
     _join_type: &JoinType,
     _schema: &Schema,
-) -> Statistics {
+) -> Result<Statistics> {
     // TODO: this is not correct
     left.statistics()
 }

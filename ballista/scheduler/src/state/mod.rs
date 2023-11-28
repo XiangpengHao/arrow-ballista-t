@@ -492,6 +492,7 @@ impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
                                 hash_join.join_type(),
                                 *partition_mode,
                                 hash_join.null_equals_null(),
+                                self.mode,
                             )?;
                             Ok(Transformed::Yes(
                                 Arc::new(new_join) as Arc<dyn ExecutionPlan>

@@ -294,6 +294,9 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     hash_join.partition_mode,
                 )
                 .expect("Received a HashJoinNode message with unknown PartitionMode ");
+
+                let mode = protobuf::RemoteMemoryMode::from_i32(hash_join.mode).unwrap();
+
                 let partition_mode = match partition_mode {
                     datafusion_proto::protobuf::PartitionMode::CollectLeft => {
                         PartitionMode::CollectLeft
@@ -313,6 +316,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     &join_type,
                     partition_mode,
                     hash_join.null_equals_null,
+                    mode.into(),
                 )?))
             }
         }
@@ -488,6 +492,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 }
                 PartitionMode::Auto => datafusion_proto::protobuf::PartitionMode::Auto,
             };
+            let mode: protobuf::RemoteMemoryMode = exec.remote_mode.into();
 
             let proto = protobuf::BallistaPhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::HashJoin(
@@ -499,6 +504,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         filter,
                         partition_mode: partition_mode.into(),
                         null_equals_null: exec.null_equals_null(),
+                        mode: mode.into(),
                     },
                 )),
             };

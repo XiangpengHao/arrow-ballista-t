@@ -44,6 +44,8 @@ pub struct RmHashJoinExecNode {
     pub null_equals_null: bool,
     #[prost(message, optional, tag = "8")]
     pub filter: ::core::option::Option<::datafusion_proto::protobuf::JoinFilter>,
+    #[prost(enumeration = "RemoteMemoryMode", tag = "9")]
+    pub mode: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -717,6 +719,12 @@ pub struct ShuffleWritePartition {
     pub num_bytes: u64,
     #[prost(uint64, tag = "6")]
     pub physical_bytes: u64,
+    #[prost(uint64, tag = "7")]
+    pub ht_bucket_mask: u64,
+    #[prost(uint64, tag = "8")]
+    pub ht_growth_left: u64,
+    #[prost(uint64, tag = "9")]
+    pub ht_items: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

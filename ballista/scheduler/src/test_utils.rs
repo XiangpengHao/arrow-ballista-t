@@ -278,6 +278,9 @@ pub fn default_task_runner() -> impl TaskRunner {
                 num_rows: 1,
                 num_bytes: 1,
                 physical_bytes: 1,
+                ht_bucket_mask: 0,
+                ht_growth_left: 0,
+                ht_items: 0,
             })
             .collect();
 
@@ -1084,6 +1087,9 @@ pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStat
             num_rows: 1,
             num_bytes: 1,
             physical_bytes: 1,
+            ht_bucket_mask: 0,
+            ht_growth_left: 0,
+            ht_items: 0,
         })
     }
 
@@ -1123,6 +1129,9 @@ pub fn mock_failed_task(task: TaskDescription, failed_task: FailedTask) -> TaskS
             num_rows: 1,
             num_bytes: 1,
             physical_bytes: 1,
+            ht_bucket_mask: 0,
+            ht_growth_left: 0,
+            ht_items: 0,
         })
     }
 

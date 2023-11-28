@@ -46,6 +46,7 @@ message RMHashJoinExecNode {
   datafusion.PartitionMode partition_mode = 6;
   bool null_equals_null = 7;
   datafusion.JoinFilter filter = 8;
+  RemoteMemoryMode mode = 9;
 }
 
 
@@ -438,6 +439,9 @@ message ShuffleWritePartition {
   uint64 num_rows = 4;
   uint64 num_bytes = 5;
   uint64 physical_bytes = 6;
+  uint64 ht_bucket_mask = 7;
+  uint64 ht_growth_left = 8;
+  uint64 ht_items = 9;
 }
 
 message TaskStatus {

@@ -68,6 +68,8 @@ use ahash::RandomState;
 use arrow::compute::kernels::cmp::{eq, not_distinct};
 use futures::{ready, Stream, StreamExt, TryStreamExt};
 
+use crate::utils::RemoteMemoryMode;
+
 use super::join_utils::{
     adjust_indices_by_join_type, apply_join_filter_to_indices, build_batch_from_indices,
     estimate_join_statistics, get_final_indices_from_bit_map,
@@ -110,6 +112,8 @@ pub struct RMHashJoinExec {
     column_indices: Vec<ColumnIndex>,
     /// If null_equals_null is true, null == null else null != null
     pub null_equals_null: bool,
+
+    pub remote_mode: RemoteMemoryMode,
 }
 
 impl RMHashJoinExec {
@@ -124,6 +128,7 @@ impl RMHashJoinExec {
         join_type: &JoinType,
         partition_mode: PartitionMode,
         null_equals_null: bool,
+        remote_memory_mode: RemoteMemoryMode,
     ) -> Result<Self> {
         let left_schema = left.schema();
         let right_schema = right.schema();
@@ -162,6 +167,7 @@ impl RMHashJoinExec {
             column_indices,
             null_equals_null,
             output_order,
+            remote_mode: remote_memory_mode,
         })
     }
 
@@ -406,6 +412,7 @@ impl ExecutionPlan for RMHashJoinExec {
             &self.join_type,
             self.mode,
             self.null_equals_null,
+            self.remote_mode,
         )?))
     }
 
@@ -576,7 +583,7 @@ async fn collect_left_input(
     reservation.try_grow(estimated_hastable_size)?;
     metrics.build_mem_used.add(estimated_hastable_size);
 
-    let mut hashmap = JoinHashMap::with_capacity(num_rows);
+    let mut hashmap = JoinHashMap::with_capacity(num_rows, "test".to_string());
     let mut hashes_buffer = Vec::new();
     let mut offset = 0;
     for batch in batches.iter() {

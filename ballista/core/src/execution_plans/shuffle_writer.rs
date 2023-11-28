@@ -289,6 +289,9 @@ async fn execute_file_based_remote_shuffle_write(
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
+                ht_bucket_mask: 0,
+                ht_growth_left: 0,
+                ht_items: 0,
             }])
         }
 
@@ -364,6 +367,9 @@ async fn execute_file_based_remote_shuffle_write(
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
                             physical_bytes: w.num_batches,
+                            ht_bucket_mask: 0,
+                            ht_growth_left: 0,
+                            ht_items: 0,
                         });
                     }
                     None => {}
@@ -430,6 +436,9 @@ async fn execute_conventional_shuffle_write(
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
+                ht_bucket_mask: 0,
+                ht_growth_left: 0,
+                ht_items: 0,
             }])
         }
 
@@ -506,6 +515,9 @@ async fn execute_conventional_shuffle_write(
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
                             physical_bytes: w.num_bytes,
+                            ht_bucket_mask: 0,
+                            ht_growth_left: 0,
+                            ht_items: 0,
                         });
                     }
                     None => {}
@@ -571,6 +583,9 @@ async fn execute_memory_based_remote_shuffle_write(
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
+                ht_bucket_mask: 0,
+                ht_growth_left: 0,
+                ht_items:0,
             }])
         }
 
@@ -654,6 +669,9 @@ async fn execute_memory_based_remote_shuffle_write(
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
                             physical_bytes: physical_size as u64,
+                            ht_bucket_mask: 0,
+                            ht_growth_left:0,
+                            ht_items:0,
                         });
                     }
                     None => {}
@@ -746,6 +764,9 @@ async fn execute_memory_based_remote_shuffle_write(
                             num_rows: w.num_rows,
                             num_bytes: w.num_bytes,
                             physical_bytes: physical_size as u64,
+                            ht_bucket_mask: 0,
+                            ht_growth_left:0,
+                            ht_items:0,
                         });
                     }
                     None => {}
@@ -811,12 +832,15 @@ async fn execute_join_on_remote_shuffle_write(
                 num_rows: stats.num_rows.unwrap_or(0),
                 num_bytes: stats.num_bytes.unwrap_or(0),
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
+                ht_bucket_mask: 0,
+                ht_growth_left:0,
+                ht_items: 0,
             }])
         }
 
         Some(Partitioning::Hash(exprs, _num_output_partitions)) => {
             let mut idt = path.clone();
-            idt.push_str(&format!("-jointable-data-{input_partition}.arrow"));
+            idt.push_str(&format!("-jointable-data-{input_partition}"));
 
             debug!("Writing results to {:?}", idt);
 
@@ -824,7 +848,7 @@ async fn execute_join_on_remote_shuffle_write(
             let estimated_size_per_partition = 1024 * 1024 * 512;
 
             let mut writer = SharedMemoryByteWriter::new(
-                idt,
+                idt.clone(),
                 stream.schema().as_ref(),
                 estimated_size_per_partition,
             )?;
@@ -840,7 +864,6 @@ async fn execute_join_on_remote_shuffle_write(
                 writer.write(&input_batch)?;
             }
 
-            let mut part_locs = vec![];
 
             writer.finish()?;
 
@@ -854,14 +877,7 @@ async fn execute_join_on_remote_shuffle_write(
                     physical_bytes 
                 );
 
-            part_locs.push(ShuffleWritePartition {
-                partition_id: 0,
-                path: writer.identifier().to_owned(),
-                num_batches: writer.num_batches,
-                num_rows: writer.num_rows,
-                num_bytes: writer.num_bytes,
-                physical_bytes: physical_bytes as u64,
-            });
+    
 
             log::warn!("shuffle write metrics: {:?}", write_metrics);
 
@@ -871,7 +887,8 @@ async fn execute_join_on_remote_shuffle_write(
             let mut hashes_buffer: Vec<u64> = Vec::new();
             let mut offset = 0;
             let random_state = RandomState::with_seeds(0, 0, 0, 0);
-            let mut hashmap = JoinHashMap::with_capacity(total_row_cnt);
+
+            let mut hashmap = JoinHashMap::with_capacity(total_row_cnt, idt);
 
             for b in reader{
                 let input_batch = b?;
@@ -912,7 +929,20 @@ async fn execute_join_on_remote_shuffle_write(
                 }
                 offset += input_batch.num_rows();
             }
-            Ok(part_locs)
+
+            let ht_raw_parts = hashmap.into_raw_parts();
+
+           Ok( vec![ShuffleWritePartition {
+                partition_id: 0,
+                path: writer.identifier().to_owned(),
+                num_batches: writer.num_batches,
+                num_rows: writer.num_rows,
+                num_bytes: writer.num_bytes,
+                physical_bytes: physical_bytes as u64,
+                ht_bucket_mask: ht_raw_parts.1 as u64,
+                ht_growth_left: ht_raw_parts.2 as u64,
+                ht_items: ht_raw_parts.3 as u64,
+            }])
         }
 
         Some(Partitioning::RoundRobinBatch(_num_output_partitions)) => {

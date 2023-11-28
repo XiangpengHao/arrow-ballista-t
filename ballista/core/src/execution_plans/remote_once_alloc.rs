@@ -113,6 +113,7 @@ struct RawTableCopyInner {
 pub struct RawTableReconstructor {}
 
 impl RawTableReconstructor {
+    /// returns (bucket_mask, start, growth_left, items)
     pub unsafe fn into_raw_parts<T, A: Allocator>(
         ht: hashbrown::raw::RawTable<T, A>,
     ) -> (usize, *mut T, usize, usize) {
@@ -125,7 +126,7 @@ impl RawTableReconstructor {
         (bucket_mask, start.as_ptr(), growth_left, items)
     }
 
-	/// by the time the table is reconstructed, no new allocation shall happen.
+    /// by the time the table is reconstructed, no new allocation shall happen.
     pub unsafe fn from_raw_parts<T>(
         bucket_mask: usize,
         start: *mut T,

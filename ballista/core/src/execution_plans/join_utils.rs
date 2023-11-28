@@ -45,6 +45,8 @@ use futures::{ready, Future, FutureExt};
 use hashbrown::raw::RawTable;
 use parking_lot::Mutex;
 
+use super::remote_once_alloc::{RawTableReconstructor, RemoteOnceAlloc};
+
 // Maps a `u64` hash value based on the build side ["on" values] to a list of indices with this key's value.
 // By allocating a `HashMap` with capacity for *at least* the number of rows for entries at the build side,
 // we make sure that we don't have to re-hash the hashmap, which needs access to the key (the hash in this case) value.
@@ -100,17 +102,30 @@ use parking_lot::Mutex;
 // https://github.com/apache/arrow-datafusion/issues/50
 pub struct JoinHashMap {
     // Stores hash value to last row index
-    pub map: RawTable<(u64, u64), douhua::RemoteAlloc>,
+    pub map: RawTable<(u64, u64), RemoteOnceAlloc>,
     // Stores indices in chained list data structure
-    pub next: Vec<u64>,
+    pub next: Vec<u64, RemoteOnceAlloc>,
+    pub shm_base_path: String,
 }
 
 impl JoinHashMap {
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(capacity: usize, shm_base_path: String) -> Self {
+        let map_path = format!("{}.hashmap", shm_base_path);
+        let next_path = format!("{}.next", shm_base_path);
         JoinHashMap {
-            map: RawTable::with_capacity_in(capacity, douhua::RemoteAlloc::new()),
-            next: vec![0; capacity],
+            map: RawTable::with_capacity_in(capacity, RemoteOnceAlloc::new(&map_path)),
+            next: Vec::<u64, RemoteOnceAlloc>::with_capacity_in(
+                capacity,
+                RemoteOnceAlloc::new(&next_path),
+            ),
+            shm_base_path: shm_base_path,
         }
+    }
+
+    /// returns (shm_base_path, bucket_mask, growth_left, items)
+    pub(crate) fn into_raw_parts(self) -> (String, usize, usize, usize) {
+        let map_parts = unsafe { RawTableReconstructor::into_raw_parts(self.map) };
+        (self.shm_base_path, map_parts.0, map_parts.2, map_parts.3)
     }
 }
 
@@ -123,19 +138,19 @@ impl JoinHashMap {
     pub(crate) fn get_mut(
         &mut self,
     ) -> (
-        &mut RawTable<(u64, u64), douhua::RemoteAlloc>,
-        &mut Vec<u64>,
+        &mut RawTable<(u64, u64), RemoteOnceAlloc>,
+        &mut Vec<u64, RemoteOnceAlloc>,
     ) {
         (&mut self.map, &mut self.next)
     }
 
     /// Get a reference to the hash map.
-    pub(crate) fn get_map(&self) -> &RawTable<(u64, u64), douhua::RemoteAlloc> {
+    pub(crate) fn get_map(&self) -> &RawTable<(u64, u64), RemoteOnceAlloc> {
         &self.map
     }
 
     /// Get a reference to the next.
-    pub(crate) fn get_list(&self) -> &Vec<u64> {
+    pub(crate) fn get_list(&self) -> &Vec<u64, RemoteOnceAlloc> {
         &self.next
     }
 }

@@ -40,7 +40,7 @@ default = ["mimalloc"]
 anyhow = "1"
 arrow = { workspace = true }
 arrow-flight = { workspace = true }
-async-trait = "0.1.73"
+async-trait = "0.1.74"
 ballista-core = { path = "../core", version = "0.11.0" }
 configure_me = { workspace = true }
 dashmap = "5.5.3"
@@ -58,7 +58,7 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
-uuid = { version = "1.4", features = ["v4"] }
+uuid = { version = "1.6", features = ["v4"] }
 
 [dev-dependencies]
 

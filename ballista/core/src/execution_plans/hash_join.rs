@@ -117,6 +117,7 @@ impl RMHashJoinExec {
     /// Tries to create a new [HashJoinExec].
     /// # Error
     /// This function errors when it is not possible to join the left and right sides on keys `on`.
+    #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         left: Arc<dyn ExecutionPlan>,
         right: Arc<dyn ExecutionPlan>,

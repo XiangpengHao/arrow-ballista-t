@@ -116,7 +116,7 @@ impl JoinHashMap {
                 capacity,
                 RemoteOnceAlloc::new(&next_path),
             ),
-            shm_base_path: shm_base_path,
+            shm_base_path,
         }
     }
 
@@ -133,6 +133,7 @@ impl JoinHashMap {
     pub(crate) fn extend_zero(&mut self, _: usize) {}
 
     /// Get mutable references to the hash map and the next.
+    #[allow(clippy::type_complexity)]
     pub(crate) fn get_mut(
         &mut self,
     ) -> (

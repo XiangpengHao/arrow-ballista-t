@@ -168,13 +168,13 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     None => None,
                 };
 
-                let mode = protobuf::RemoteMemoryMode::from_i32(
+                let mode = protobuf::RemoteMemoryMode::try_from(
                     shuffle_writer.remote_memory_mode,
                 )
                 .unwrap();
 
                 let join_input_side =
-                    protobuf::JoinInputSide::from_i32(shuffle_writer.join_input_side)
+                    protobuf::JoinInputSide::try_from(shuffle_writer.join_input_side)
                         .unwrap();
 
                 Ok(Arc::new(ShuffleWriterExec::try_new(
@@ -207,7 +207,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
 
-                let mode = protobuf::RemoteMemoryMode::from_i32(
+                let mode = protobuf::RemoteMemoryMode::try_from(
                     shuffle_reader.remote_memory_mode,
                 )
                 .unwrap();
@@ -222,7 +222,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {
                 let schema = Arc::new(convert_required!(unresolved_shuffle.schema)?);
-                let mode = protobuf::RemoteMemoryMode::from_i32(
+                let mode = protobuf::RemoteMemoryMode::try_from(
                     unresolved_shuffle.remote_memory_mode,
                 )
                 .unwrap();
@@ -251,7 +251,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     .collect::<datafusion::error::Result<_>>()?;
 
                 let join_type =
-                    datafusion_proto::protobuf::JoinType::from_i32(hash_join.join_type)
+                    datafusion_proto::protobuf::JoinType::try_from(hash_join.join_type)
                         .expect("invalid join type");
                 let join_type = JoinType::from(join_type);
 
@@ -274,7 +274,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         let column_indices = f.column_indices
                             .iter()
                             .map(|i| {
-                                let side = datafusion_proto:: protobuf::JoinSide::from_i32(i.side)
+                                let side = datafusion_proto:: protobuf::JoinSide::try_from(i.side)
                                     .expect(
                                         "Received a HashJoinNode message with JoinSide in Filter"
                                     );
@@ -290,12 +290,12 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     })
                     .map_or(Ok(None), |v: datafusion::error::Result<JoinFilter>| v.map(Some))?;
 
-                let partition_mode = datafusion_proto::protobuf::PartitionMode::from_i32(
+                let partition_mode = datafusion_proto::protobuf::PartitionMode::try_from(
                     hash_join.partition_mode,
                 )
                 .expect("Received a HashJoinNode message with unknown PartitionMode ");
 
-                let mode = protobuf::RemoteMemoryMode::from_i32(hash_join.mode).unwrap();
+                let mode = protobuf::RemoteMemoryMode::try_from(hash_join.mode).unwrap();
 
                 let partition_mode = match partition_mode {
                     datafusion_proto::protobuf::PartitionMode::CollectLeft => {

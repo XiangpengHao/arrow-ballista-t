@@ -293,7 +293,7 @@ async fn benchmark_datafusion(opt: DataFusionBenchmarkOpt) -> Result<Vec<RecordB
     let config = SessionConfig::new()
         .with_target_partitions(opt.partitions)
         .with_batch_size(opt.batch_size);
-    let ctx = SessionContext::with_config(config);
+    let ctx = SessionContext::new_with_config(config);
 
     // register tables
     for table in TABLES {
@@ -757,7 +757,7 @@ async fn convert_tbl(opt: ConvertOpt) -> Result<()> {
             .file_extension(".tbl");
 
         let config = SessionConfig::new().with_batch_size(opt.batch_size);
-        let ctx = SessionContext::with_config(config);
+        let ctx = SessionContext::new_with_config(config);
         let session_state = ctx.state();
 
         // build plan to read the TBL file
@@ -1531,7 +1531,7 @@ mod tests {
         let config = SessionConfig::new()
             .with_target_partitions(1)
             .with_batch_size(10);
-        let ctx = SessionContext::with_config(config);
+        let ctx = SessionContext::new_with_config(config);
 
         for &table in TABLES {
             let schema = get_schema(table);

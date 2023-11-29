@@ -1018,6 +1018,11 @@ impl ExecutionPlan for ShuffleWriterExec {
                 let mut num_bytes_builder = UInt64Builder::with_capacity(num_writers);
                 let mut physical_bytes_builder =
                     UInt64Builder::with_capacity(num_writers);
+                let mut ht_bucket_mask_builder =
+                    UInt64Builder::with_capacity(num_writers);
+                let mut ht_growth_left_builder =
+                    UInt64Builder::with_capacity(num_writers);
+                let mut ht_items_builder = UInt64Builder::with_capacity(num_writers);
 
                 for loc in &part_loc {
                     path_builder.append_value(loc.path.clone());
@@ -1026,6 +1031,9 @@ impl ExecutionPlan for ShuffleWriterExec {
                     num_batches_builder.append_value(loc.num_batches);
                     num_bytes_builder.append_value(loc.num_bytes);
                     physical_bytes_builder.append_value(loc.physical_bytes);
+                    ht_bucket_mask_builder.append_value(loc.ht_bucket_mask);
+                    ht_growth_left_builder.append_value(loc.ht_growth_left);
+                    ht_items_builder.append_value(loc.ht_items);
                 }
 
                 // build arrays
@@ -1036,6 +1044,9 @@ impl ExecutionPlan for ShuffleWriterExec {
                     Box::new(num_batches_builder),
                     Box::new(num_bytes_builder),
                     Box::new(physical_bytes_builder),
+                    Box::new(ht_bucket_mask_builder),
+                    Box::new(ht_growth_left_builder),
+                    Box::new(ht_items_builder)
                 ];
                 let mut stats_builder = StructBuilder::new(
                     PartitionStats::default().arrow_struct_fields(),

@@ -111,6 +111,9 @@ pub struct PartitionStats {
     pub(crate) num_batches: Option<u64>,
     pub(crate) num_bytes: Option<u64>,
     pub(crate) physical_bytes: Option<u64>,
+    pub(crate) ht_bucket_mask: Option<u64>,
+    pub(crate) ht_growth_left: Option<u64>,
+    pub(crate) ht_items: Option<u64>,
 }
 
 impl fmt::Display for PartitionStats {
@@ -129,12 +132,18 @@ impl PartitionStats {
         num_batches: Option<u64>,
         num_bytes: Option<u64>,
         physical_bytes: Option<u64>,
+        ht_bucket_mask: Option<u64>,
+        ht_growth_left: Option<u64>,
+        ht_items: Option<u64>,
     ) -> Self {
         Self {
             num_rows,
             num_batches,
             num_bytes,
             physical_bytes,
+            ht_bucket_mask,
+            ht_growth_left,
+            ht_items,
         }
     }
 
@@ -151,6 +160,10 @@ impl PartitionStats {
             Field::new("num_rows", DataType::UInt64, false),
             Field::new("num_batches", DataType::UInt64, false),
             Field::new("num_bytes", DataType::UInt64, false),
+            Field::new("physical_bytes", DataType::UInt64, false),
+            Field::new("ht_bucket_mask", DataType::UInt64, false),
+            Field::new("ht_growth_left", DataType::UInt64, false),
+            Field::new("ht_items", DataType::UInt64, false),
         ]
     }
 
@@ -213,11 +226,39 @@ impl PartitionStats {
                 "from_arrow_struct_array expected physical_bytes to be a UInt64Array",
             );
 
+        let ht_bucket_mask = struct_array
+            .column_by_name("ht_bucket_mask")
+            .expect("from_arrow_struct_array expected a field ht_bucket_mask")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect(
+                "from_arrow_struct_array expected ht_bucket_mask to be a UInt64Array",
+            );
+
+        let ht_growth_left = struct_array
+            .column_by_name("ht_growth_left")
+            .expect("from_arrow_struct_array expected a field ht_growth_left")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect(
+                "from_arrow_struct_array expected ht_growth_left to be a UInt64Array",
+            );
+
+        let ht_items = struct_array
+            .column_by_name("ht_items")
+            .expect("from_arrow_struct_array expected a field ht_items")
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("from_arrow_struct_array expected ht_items to be a UInt64Array");
+
         PartitionStats {
             num_rows: Some(num_rows.value(0).to_owned()),
             num_batches: Some(num_batches.value(0).to_owned()),
             num_bytes: Some(num_bytes.value(0).to_owned()),
             physical_bytes: Some(physical_bytes.value(0).to_owned()),
+            ht_bucket_mask: Some(ht_bucket_mask.value(0).to_owned()),
+            ht_growth_left: Some(ht_growth_left.value(0).to_owned()),
+            ht_items: Some(ht_items.value(0).to_owned()),
         }
     }
 }

@@ -1494,6 +1494,9 @@ fn partition_to_location(
                 Some(shuffle.num_batches),
                 Some(shuffle.num_bytes),
                 Some(shuffle.physical_bytes),
+                Some(shuffle.ht_bucket_mask),
+                Some(shuffle.ht_growth_left),
+                Some(shuffle.ht_items),
             ),
             path: shuffle.path,
         })

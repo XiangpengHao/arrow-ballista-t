@@ -20,12 +20,12 @@ set -e
 set -x
 
 remote_how_arg=$1
+shift # Shift the arguments to start processing the next ones as query numbers
 
-# This bash script is meant to be run inside the docker-compose environment. Check the README for instructions
-# at least make sure these queries run, even though we do not check that the results are correct yet
+# Rest of your script description
 
-for query in 3 4 5 6 7 8 9 10 11 12 13 14 15 17 18 19 20 21 22
+# Loop through all the remaining arguments which are the query numbers
+for query in "$@"
 do
   /root/tpch benchmark ballista --host ballista-scheduler --port 50050 --query $query --path /data/data-parquet --format parquet --iterations 1 --remote-how $remote_how_arg
 done
-

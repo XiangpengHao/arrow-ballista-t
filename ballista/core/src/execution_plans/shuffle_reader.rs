@@ -683,12 +683,18 @@ mod tests {
                 num_bytes: Some(84),
                 num_batches: Some(1),
                 physical_bytes: Some(84),
+                ht_bucket_mask: Some(0),
+                ht_growth_left: Some(0),
+                ht_items: Some(0),
             },
             PartitionStats {
                 num_rows: Some(4),
                 num_bytes: Some(65),
                 num_batches: None,
                 physical_bytes: Some(65),
+                ht_bucket_mask: Some(0),
+                ht_growth_left: Some(0),
+                ht_items: Some(0),
             },
         ];
 
@@ -711,12 +717,18 @@ mod tests {
                 num_bytes: Some(84),
                 num_batches: Some(1),
                 physical_bytes: Some(84),
+                ht_bucket_mask: Some(0),
+                ht_growth_left: Some(0),
+                ht_items: Some(0),
             },
             PartitionStats {
                 num_rows: None,
                 num_bytes: None,
                 num_batches: None,
                 physical_bytes: None,
+                ht_bucket_mask: None,
+                ht_growth_left: None,
+                ht_items: None,
             },
         ];
 

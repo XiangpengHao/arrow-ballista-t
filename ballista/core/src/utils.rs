@@ -228,6 +228,9 @@ pub async fn write_stream_to_disk(
         Some(num_batches),
         Some(num_bytes as u64),
         Some(physical_size as u64),
+        Some(0),
+        Some(0),
+        Some(0),
     ))
 }
 

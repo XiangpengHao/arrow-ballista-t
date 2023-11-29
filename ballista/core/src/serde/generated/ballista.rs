@@ -418,7 +418,13 @@ pub struct PartitionStats {
     pub num_bytes: i64,
     #[prost(int64, tag = "4")]
     pub physical_bytes: i64,
-    #[prost(message, repeated, tag = "5")]
+    #[prost(int64, tag = "5")]
+    pub ht_bucket_mask: i64,
+    #[prost(int64, tag = "6")]
+    pub ht_growth_left: i64,
+    #[prost(int64, tag = "7")]
+    pub ht_items: i64,
+    #[prost(message, repeated, tag = "8")]
     pub column_stats: ::prost::alloc::vec::Vec<ColumnStats>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

@@ -266,7 +266,10 @@ message PartitionStats {
   int64 num_batches = 2;
   int64 num_bytes = 3;
   int64 physical_bytes = 4;
-  repeated ColumnStats column_stats = 5;
+  int64 ht_bucket_mask = 5;
+  int64 ht_growth_left = 6;
+  int64 ht_items = 7;
+  repeated ColumnStats column_stats = 8;
 }
 
 message ColumnStats {

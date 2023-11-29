@@ -93,6 +93,9 @@ impl Into<protobuf::PartitionStats> for PartitionStats {
             num_batches: self.num_batches.map(|n| n as i64).unwrap_or(none_value),
             num_bytes: self.num_bytes.map(|n| n as i64).unwrap_or(none_value),
             physical_bytes: self.physical_bytes.map(|n| n as i64).unwrap_or(none_value),
+            ht_bucket_mask: self.ht_bucket_mask.map(|n| n as i64).unwrap_or(none_value),
+            ht_growth_left: self.ht_growth_left.map(|n| n as i64).unwrap_or(none_value),
+            ht_items: self.ht_items.map(|n| n as i64).unwrap_or(none_value),
             column_stats: vec![],
         }
     }

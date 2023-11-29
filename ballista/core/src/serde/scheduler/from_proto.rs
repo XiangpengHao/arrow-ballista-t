@@ -110,6 +110,9 @@ impl Into<PartitionStats> for protobuf::PartitionStats {
             foo(self.num_batches),
             foo(self.num_bytes),
             foo(self.physical_bytes),
+            foo(self.ht_bucket_mask),
+            foo(self.ht_growth_left),
+            foo(self.ht_items),
         )
     }
 }

@@ -141,6 +141,8 @@ impl ExecutionPlan for ShuffleReaderExec {
         let task_id = context.task_id().unwrap_or_else(|| partition.to_string());
         info!("ShuffleReaderExec::execute({})", task_id);
 
+        log::warn!("ShuffleReader: partition:{:?}", self.partition);
+
         // TODO make the maximum size configurable, or make it depends on global memory control
         let max_request_num = 50usize;
         let mut partition_locations = HashMap::new();
@@ -160,13 +162,22 @@ impl ExecutionPlan for ShuffleReaderExec {
         // Shuffle partitions for evenly send fetching partition requests to avoid hot executors within multiple tasks
         partition_locations.shuffle(&mut thread_rng());
 
-        if matches!(self.remote_mode, RemoteMemoryMode::JoinOnRemote) {
-            assert!(partition_locations.len() == 1);
+        if partition_locations.len() > 0
+            && matches!(self.remote_mode, RemoteMemoryMode::JoinOnRemote)
+        {
+            assert_eq!(partition_locations.len(), 1);
             let mut join_state = JOIN_STATE.lock().unwrap();
             let loc = partition_locations.first().unwrap();
-            let rt =
-                join_state.insert("shuffle_partition_path".to_string(), loc.path.clone());
-            assert!(rt.is_none());
+            let has_ht = loc.partition_stats.ht_items.unwrap() > 0;
+            if has_ht {
+                let rt = join_state
+                    .insert("shuffle_partition_path".to_string(), loc.path.clone());
+                log::info!("JoinOnRemote partition path: {}", loc.path);
+
+                if rt.is_some() {
+                    panic!("JoinOnRemote partition path is not empty {}", rt.unwrap());
+                }
+            }
         }
 
         let response_receiver =

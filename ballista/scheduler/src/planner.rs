@@ -179,17 +179,18 @@ impl DistributedPlanner {
         {
             match self.remote_memory_mode {
                 RemoteMemoryMode::JoinOnRemote => {
-                    // Here, if we are on LHS of a join, we need to build hash table during the "shuffle"
-                    // if we are on RHS of a join, we should not write to remote memory.
+                    // Here, if we are on LHS of a join, we need to build hash table during the "shuffle".
+                    //      In this case, we just pass the current parition to the shuffle writer.
+                    // If we are on RHS of a join, we should not write to remote memory.
+                    //      In this case, we need to do round robin partitioning.
                     match (repart.output_partitioning(), join_input_side) {
-                        (Partitioning::Hash(_, h_part_size), JoinInputSide::Left) => {
-                            let new_part = Partitioning::RoundRobinBatch(h_part_size);
+                        (Partitioning::Hash(_, _), JoinInputSide::Left) => {
                             let shuffle_writer: Arc<ShuffleWriterExec> =
                                 create_shuffle_writer(
                                     job_id,
                                     self.next_stage_id(),
                                     children[0].clone(),
-                                    Some(new_part),
+                                    Some(repart.partitioning().to_owned()),
                                     self.remote_memory_mode,
                                     join_input_side,
                                 )?;
@@ -201,13 +202,15 @@ impl DistributedPlanner {
                             Ok((unresolved_shuffle, stages))
                         }
                         (Partitioning::Hash(_, _), JoinInputSide::Right) => {
+                            // TODO: should do round robin partitioning here.
+                            // let new_part = Partitioning::RoundRobinBatch(h_part_size);
                             let shuffle_writer: Arc<ShuffleWriterExec> =
                                 create_shuffle_writer(
                                     job_id,
                                     self.next_stage_id(),
                                     children[0].clone(),
                                     Some(repart.partitioning().to_owned()),
-                                    RemoteMemoryMode::FileBasedShuffle,
+                                    RemoteMemoryMode::MemoryBasedShuffle,
                                     join_input_side,
                                 )?;
                             let unresolved_shuffle = create_unresolved_shuffle(

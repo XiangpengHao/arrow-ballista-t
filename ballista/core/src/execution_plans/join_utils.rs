@@ -31,12 +31,13 @@ use datafusion::arrow::compute;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchOptions};
 use datafusion::common::cast::as_boolean_array;
+use datafusion::common::stats::Precision;
 use datafusion::common::{DataFusionError, JoinSide, Result};
 use datafusion::error::SharedResult;
 
 use datafusion::physical_plan::joins::utils::{ColumnIndex, JoinFilter, JoinOn};
 use datafusion::physical_plan::metrics::{self, ExecutionPlanMetricsSet, MetricBuilder};
-use datafusion::physical_plan::{ExecutionPlan, Statistics};
+use datafusion::physical_plan::{ColumnStatistics, ExecutionPlan, Statistics};
 use datafusion::prelude::JoinType;
 use futures::future::{BoxFuture, Shared};
 use futures::{ready, Future, FutureExt};
@@ -110,12 +111,16 @@ impl JoinHashMap {
     pub(crate) fn with_capacity(capacity: usize, shm_base_path: String) -> Self {
         let map_path = format!("{}.hashmap", shm_base_path);
         let next_path = format!("{}.next", shm_base_path);
+        let mut next = Vec::<u64, RemoteOnceAlloc>::with_capacity_in(
+            capacity,
+            RemoteOnceAlloc::new(&next_path),
+        );
+        unsafe {
+            next.set_len(capacity);
+        }
         JoinHashMap {
             map: RawTable::with_capacity_in(capacity, RemoteOnceAlloc::new(&map_path)),
-            next: Vec::<u64, RemoteOnceAlloc>::with_capacity_in(
-                capacity,
-                RemoteOnceAlloc::new(&next_path),
-            ),
+            next,
             shm_base_path,
         }
     }
@@ -578,11 +583,204 @@ impl BuildProbeJoinMetrics {
 /// Estimate the statistics for the given join's output.
 pub(crate) fn estimate_join_statistics(
     left: Arc<dyn ExecutionPlan>,
-    _right: Arc<dyn ExecutionPlan>,
-    _on: JoinOn,
-    _join_type: &JoinType,
-    _schema: &Schema,
+    right: Arc<dyn ExecutionPlan>,
+    on: JoinOn,
+    join_type: &JoinType,
+    schema: &Schema,
 ) -> Result<Statistics> {
     // TODO: this is not correct
-    left.statistics()
+    let left_stats = left.statistics()?;
+    let right_stats = right.statistics()?;
+
+    let join_stats = estimate_join_cardinality(join_type, left_stats, right_stats, &on);
+    let (num_rows, column_statistics) = match join_stats {
+        Some(stats) => (Precision::Inexact(stats.num_rows), stats.column_statistics),
+        None => (Precision::Absent, Statistics::unknown_column(schema)),
+    };
+    Ok(Statistics {
+        num_rows,
+        total_byte_size: Precision::Absent,
+        column_statistics,
+    })
+}
+
+/// A shared state between statistic aggregators for a join
+/// operation.
+#[derive(Clone, Debug, Default)]
+struct PartialJoinStatistics {
+    pub num_rows: usize,
+    pub column_statistics: Vec<ColumnStatistics>,
+}
+
+// Estimate the cardinality for the given join with input statistics.
+fn estimate_join_cardinality(
+    join_type: &JoinType,
+    left_stats: Statistics,
+    right_stats: Statistics,
+    on: &JoinOn,
+) -> Option<PartialJoinStatistics> {
+    match join_type {
+        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => {
+            let (left_col_stats, right_col_stats) = on
+                .iter()
+                .map(|(left, right)| {
+                    (
+                        left_stats.column_statistics[left.index()].clone(),
+                        right_stats.column_statistics[right.index()].clone(),
+                    )
+                })
+                .unzip::<_, _, Vec<_>, Vec<_>>();
+
+            let ij_cardinality = estimate_inner_join_cardinality(
+                Statistics {
+                    num_rows: left_stats.num_rows.clone(),
+                    total_byte_size: Precision::Absent,
+                    column_statistics: left_col_stats,
+                },
+                Statistics {
+                    num_rows: right_stats.num_rows.clone(),
+                    total_byte_size: Precision::Absent,
+                    column_statistics: right_col_stats,
+                },
+            )?;
+
+            // The cardinality for inner join can also be used to estimate
+            // the cardinality of left/right/full outer joins as long as it
+            // it is greater than the minimum cardinality constraints of these
+            // joins (so that we don't underestimate the cardinality).
+            let cardinality = match join_type {
+                JoinType::Inner => ij_cardinality,
+                JoinType::Left => ij_cardinality.max(&left_stats.num_rows),
+                JoinType::Right => ij_cardinality.max(&right_stats.num_rows),
+                JoinType::Full => ij_cardinality
+                    .max(&left_stats.num_rows)
+                    .add(&ij_cardinality.max(&right_stats.num_rows))
+                    .sub(&ij_cardinality),
+                _ => unreachable!(),
+            };
+
+            Some(PartialJoinStatistics {
+                num_rows: *cardinality.get_value()?,
+                // We don't do anything specific here, just combine the existing
+                // statistics which might yield subpar results (although it is
+                // true, esp regarding min/max). For a better estimation, we need
+                // filter selectivity analysis first.
+                column_statistics: left_stats
+                    .column_statistics
+                    .into_iter()
+                    .chain(right_stats.column_statistics)
+                    .collect(),
+            })
+        }
+
+        JoinType::LeftSemi
+        | JoinType::RightSemi
+        | JoinType::LeftAnti
+        | JoinType::RightAnti => None,
+    }
+}
+
+/// Estimate the inner join cardinality by using the basic building blocks of
+/// column-level statistics and the total row count. This is a very naive and
+/// a very conservative implementation that can quickly give up if there is not
+/// enough input statistics.
+fn estimate_inner_join_cardinality(
+    left_stats: Statistics,
+    right_stats: Statistics,
+) -> Option<Precision<usize>> {
+    // The algorithm here is partly based on the non-histogram selectivity estimation
+    // from Spark's Catalyst optimizer.
+    let mut join_selectivity = Precision::Absent;
+    for (left_stat, right_stat) in left_stats
+        .column_statistics
+        .iter()
+        .zip(right_stats.column_statistics.iter())
+    {
+        // If there is no overlap in any of the join columns, this means the join
+        // itself is disjoint and the cardinality is 0. Though we can only assume
+        // this when the statistics are exact (since it is a very strong assumption).
+        if left_stat.min_value.get_value()? > right_stat.max_value.get_value()? {
+            return Some(
+                if left_stat.min_value.is_exact().unwrap_or(false)
+                    && right_stat.max_value.is_exact().unwrap_or(false)
+                {
+                    Precision::Exact(0)
+                } else {
+                    Precision::Inexact(0)
+                },
+            );
+        }
+        if left_stat.max_value.get_value()? < right_stat.min_value.get_value()? {
+            return Some(
+                if left_stat.max_value.is_exact().unwrap_or(false)
+                    && right_stat.min_value.is_exact().unwrap_or(false)
+                {
+                    Precision::Exact(0)
+                } else {
+                    Precision::Inexact(0)
+                },
+            );
+        }
+
+        let left_max_distinct = max_distinct_count(&left_stats.num_rows, left_stat);
+        let right_max_distinct = max_distinct_count(&right_stats.num_rows, right_stat);
+        let max_distinct = left_max_distinct.max(&right_max_distinct);
+        if max_distinct.get_value().is_some() {
+            // Seems like there are a few implementations of this algorithm that implement
+            // exponential decay for the selectivity (like Hive's Optiq Optimizer). Needs
+            // further exploration.
+            join_selectivity = max_distinct;
+        }
+    }
+
+    // With the assumption that the smaller input's domain is generally represented in the bigger
+    // input's domain, we can estimate the inner join's cardinality by taking the cartesian product
+    // of the two inputs and normalizing it by the selectivity factor.
+    let left_num_rows = left_stats.num_rows.get_value()?;
+    let right_num_rows = right_stats.num_rows.get_value()?;
+    match join_selectivity {
+        Precision::Exact(value) if value > 0 => {
+            Some(Precision::Exact((left_num_rows * right_num_rows) / value))
+        }
+        Precision::Inexact(value) if value > 0 => {
+            Some(Precision::Inexact((left_num_rows * right_num_rows) / value))
+        }
+        // Since we don't have any information about the selectivity (which is derived
+        // from the number of distinct rows information) we can give up here for now.
+        // And let other passes handle this (otherwise we would need to produce an
+        // overestimation using just the cartesian product).
+        _ => None,
+    }
+}
+
+/// Estimate the number of maximum distinct values that can be present in the
+/// given column from its statistics. If distinct_count is available, uses it
+/// directly. Otherwise, if the column is numeric and has min/max values, it
+/// estimates the maximum distinct count from those.
+fn max_distinct_count(
+    num_rows: &Precision<usize>,
+    stats: &ColumnStatistics,
+) -> Precision<usize> {
+    match &stats.distinct_count {
+        dc @ (Precision::Exact(_) | Precision::Inexact(_)) => dc.clone(),
+        _ => {
+            // The number can never be greater than the number of rows we have
+            // minus the nulls (since they don't count as distinct values).
+            let result = match num_rows {
+                Precision::Absent => Precision::Absent,
+                Precision::Inexact(count) => {
+                    Precision::Inexact(count - stats.null_count.get_value().unwrap_or(&0))
+                }
+                Precision::Exact(count) => {
+                    let count = count - stats.null_count.get_value().unwrap_or(&0);
+                    if stats.null_count.is_exact().unwrap_or(false) {
+                        Precision::Exact(count)
+                    } else {
+                        Precision::Inexact(count)
+                    }
+                }
+            };
+            result
+        }
+    }
 }

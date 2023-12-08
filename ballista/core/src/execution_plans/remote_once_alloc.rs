@@ -24,6 +24,14 @@ impl RemoteOnceAlloc {
             allocated_ptr: AtomicUsize::new(0),
         }
     }
+
+    pub fn dummy() -> Self {
+        Self {
+            shm_path: "".to_string(),
+            has_allocated: AtomicBool::new(false),
+            allocated_ptr: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl RemoteOnceAlloc {
@@ -136,7 +144,7 @@ impl RawTableReconstructor {
         start: *mut T,
         growth_left: usize,
         items: usize,
-    ) -> hashbrown::raw::RawTable<T> {
+    ) -> hashbrown::raw::RawTable<T, RemoteOnceAlloc> {
         let buckets = bucket_mask + 1;
         let ctrl = unsafe { std::mem::transmute::<_, NonNull<u8>>(start.add(buckets)) };
         let raw_table = RawTableCopyInner {
@@ -147,11 +155,13 @@ impl RawTableReconstructor {
         };
         let table = RawTableCopy {
             table: raw_table,
-            alloc: Global,
+            alloc: RemoteOnceAlloc::dummy(),
             marker: PhantomData::<T>,
         };
 
-        unsafe { std::mem::transmute::<_, hashbrown::raw::RawTable<T>>(table) }
+        unsafe {
+            std::mem::transmute::<_, hashbrown::raw::RawTable<T, RemoteOnceAlloc>>(table)
+        }
     }
 }
 

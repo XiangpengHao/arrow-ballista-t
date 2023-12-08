@@ -45,6 +45,7 @@ use hashbrown::raw::RawTable;
 use parking_lot::Mutex;
 
 use super::remote_once_alloc::{RawTableReconstructor, RemoteOnceAlloc};
+use super::rm_writer::map_shared_memory;
 
 // Maps a `u64` hash value based on the build side ["on" values] to a list of indices with this key's value.
 // By allocating a `HashMap` with capacity for *at least* the number of rows for entries at the build side,
@@ -129,6 +130,41 @@ impl JoinHashMap {
     pub(crate) fn into_raw_parts(self) -> (String, usize, usize, usize) {
         let map_parts = unsafe { RawTableReconstructor::into_raw_parts(self.map) };
         (self.shm_base_path, map_parts.0, map_parts.2, map_parts.3)
+    }
+
+    pub(crate) fn from_raw_parts(
+        shm_base_path: &str,
+        ht_bucket_mask: usize,
+        ht_growth_left: usize,
+        ht_items: usize,
+    ) -> Self {
+        let map_path = format!("{}.hashmap", shm_base_path);
+        let next_path = format!("{}.next", shm_base_path);
+
+        let (next_ptr, _next_size) = map_shared_memory(&next_path);
+        let (map_ptr, _map_size) = map_shared_memory(&map_path);
+        let hashmap = unsafe {
+            RawTableReconstructor::from_raw_parts(
+                ht_bucket_mask,
+                map_ptr as *mut (u64, u64),
+                ht_growth_left,
+                ht_items,
+            )
+        };
+        let cap = hashmap.capacity();
+        let next = unsafe {
+            Vec::<u64, RemoteOnceAlloc>::from_raw_parts_in(
+                next_ptr as *mut u64,
+                cap,
+                cap,
+                RemoteOnceAlloc::new(&next_path),
+            )
+        };
+        JoinHashMap {
+            map: hashmap,
+            next,
+            shm_base_path: shm_base_path.to_string(),
+        }
     }
 }
 

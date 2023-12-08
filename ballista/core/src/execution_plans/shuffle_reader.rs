@@ -58,8 +58,9 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::rm_writer::{MemoryReader, NoBufReader};
 
-static JOIN_STATE: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, String>>> =
-    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+pub(crate) static JOIN_STATE: once_cell::sync::Lazy<
+    std::sync::Mutex<HashMap<usize, ShuffleHashJoinMeta>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
 /// being executed by an executor
@@ -96,6 +97,14 @@ impl ShuffleReaderExec {
     pub fn remote_memory_mode(&self) -> RemoteMemoryMode {
         self.remote_mode
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ShuffleHashJoinMeta {
+    pub path: String,
+    pub ht_items: usize,
+    pub ht_bucket_mask: usize,
+    pub ht_growth_left: usize,
 }
 
 impl ExecutionPlan for ShuffleReaderExec {
@@ -141,7 +150,7 @@ impl ExecutionPlan for ShuffleReaderExec {
         let task_id = context.task_id().unwrap_or_else(|| partition.to_string());
         info!("ShuffleReaderExec::execute({})", task_id);
 
-        log::warn!("ShuffleReader: partition:{:?}", self.partition);
+        log::warn!("ShuffleReader: partition:{:?}", self.partition[partition]);
 
         // TODO make the maximum size configurable, or make it depends on global memory control
         let max_request_num = 50usize;
@@ -170,12 +179,17 @@ impl ExecutionPlan for ShuffleReaderExec {
             let loc = partition_locations.first().unwrap();
             let has_ht = loc.partition_stats.ht_items.unwrap() > 0;
             if has_ht {
-                let rt = join_state
-                    .insert("shuffle_partition_path".to_string(), loc.path.clone());
-                log::info!("JoinOnRemote partition path: {}", loc.path);
+                let meta = ShuffleHashJoinMeta {
+                    path: loc.path.clone(),
+                    ht_items: loc.partition_stats.ht_items.unwrap() as usize,
+                    ht_bucket_mask: loc.partition_stats.ht_bucket_mask.unwrap() as usize,
+                    ht_growth_left: loc.partition_stats.ht_growth_left.unwrap() as usize,
+                };
+                log::info!("JoinOnRemote partition meta: {:?}", meta);
+                let rt = join_state.insert(partition, meta);
 
                 if rt.is_some() {
-                    panic!("JoinOnRemote partition path is not empty {}", rt.unwrap());
+                    panic!("JoinOnRemote partition path is not empty {:?}", rt.unwrap());
                 }
             }
         }

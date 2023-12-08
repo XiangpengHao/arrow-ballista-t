@@ -65,6 +65,7 @@ use ahash::RandomState;
 use arrow::compute::kernels::cmp::{eq, not_distinct};
 use futures::{ready, Stream, StreamExt, TryStreamExt};
 
+use crate::execution_plans::shuffle_reader::JOIN_STATE;
 use crate::utils::RemoteMemoryMode;
 
 use super::join_utils::{
@@ -431,6 +432,7 @@ impl ExecutionPlan for RMHashJoinExec {
                     context.clone(),
                     join_metrics.clone(),
                     reservation,
+                    self.remote_mode,
                 )
             }),
             PartitionMode::Partitioned => {
@@ -446,6 +448,7 @@ impl ExecutionPlan for RMHashJoinExec {
                     context.clone(),
                     join_metrics.clone(),
                     reservation,
+                    self.remote_mode,
                 ))
             }
             PartitionMode::Auto => {
@@ -507,6 +510,7 @@ async fn collect_left_input(
     context: Arc<TaskContext>,
     metrics: BuildProbeJoinMetrics,
     reservation: MemoryReservation,
+    remote_mode: RemoteMemoryMode,
 ) -> Result<JoinLeftData> {
     let schema = left.schema();
 
@@ -548,43 +552,69 @@ async fn collect_left_input(
         })
         .await?;
 
-    // Estimation of memory size, required for hashtable, prior to allocation.
-    // Final result can be verified using `RawTable.allocation_info()`
-    //
-    // For majority of cases hashbrown overestimates buckets qty to keep ~1/8 of them empty.
-    // This formula leads to overallocation for small tables (< 8 elements) but fine overall.
-    let estimated_buckets = (num_rows.checked_mul(8).ok_or_else(|| {
-        DataFusionError::Execution(
-            "usize overflow while estimating number of hasmap buckets".to_string(),
-        )
-    })? / 7)
-        .next_power_of_two();
-    // 16 bytes per `(u64, u64)`
-    // + 1 byte for each bucket
-    // + fixed size of JoinHashMap (RawTable + Vec)
-    let estimated_hastable_size =
-        16 * estimated_buckets + estimated_buckets + size_of::<JoinHashMap>();
+    let hashmap = match remote_mode {
+        RemoteMemoryMode::JoinOnRemote => {
+            let join_meta = {
+                let mut join_state = JOIN_STATE.lock().unwrap();
+                join_state
+                    .remove(&partition.unwrap())
+                    .expect("shuffle_partition_path not set")
+            };
 
-    reservation.try_grow(estimated_hastable_size)?;
-    metrics.build_mem_used.add(estimated_hastable_size);
+            // If JoinOnRemote, the hashtable is already built on remote memory.
+            let hashmap = JoinHashMap::from_raw_parts(
+                &join_meta.path,
+                join_meta.ht_bucket_mask,
+                join_meta.ht_growth_left,
+                join_meta.ht_items,
+            );
+            hashmap
+        }
+        RemoteMemoryMode::DoNotUse
+        | RemoteMemoryMode::FileBasedShuffle
+        | RemoteMemoryMode::MemoryBasedShuffle => {
+            // Estimation of memory size, required for hashtable, prior to allocation.
+            // Final result can be verified using `RawTable.allocation_info()`
+            //
+            // For majority of cases hashbrown overestimates buckets qty to keep ~1/8 of them empty.
+            // This formula leads to overallocation for small tables (< 8 elements) but fine overall.
+            let estimated_buckets = (num_rows.checked_mul(8).ok_or_else(|| {
+                DataFusionError::Execution(
+                    "usize overflow while estimating number of hasmap buckets"
+                        .to_string(),
+                )
+            })? / 7)
+                .next_power_of_two();
+            // 16 bytes per `(u64, u64)`
+            // + 1 byte for each bucket
+            // + fixed size of JoinHashMap (RawTable + Vec)
+            let estimated_hastable_size =
+                16 * estimated_buckets + estimated_buckets + size_of::<JoinHashMap>();
 
-    let mut hashmap = JoinHashMap::with_capacity(num_rows, "test".to_string());
-    let mut hashes_buffer = Vec::new();
-    let mut offset = 0;
-    for batch in batches.iter() {
-        hashes_buffer.clear();
-        hashes_buffer.resize(batch.num_rows(), 0);
-        update_hash(
-            &on_left,
-            batch,
-            &mut hashmap,
-            offset,
-            &random_state,
-            &mut hashes_buffer,
-            0,
-        )?;
-        offset += batch.num_rows();
-    }
+            reservation.try_grow(estimated_hastable_size)?;
+            metrics.build_mem_used.add(estimated_hastable_size);
+
+            let mut hashmap = JoinHashMap::with_capacity(num_rows, "test".to_string());
+            let mut hashes_buffer = Vec::new();
+            let mut offset = 0;
+            for batch in batches.iter() {
+                hashes_buffer.clear();
+                hashes_buffer.resize(batch.num_rows(), 0);
+                update_hash(
+                    &on_left,
+                    batch,
+                    &mut hashmap,
+                    offset,
+                    &random_state,
+                    &mut hashes_buffer,
+                    0,
+                )?;
+                offset += batch.num_rows();
+            }
+            hashmap
+        }
+    };
+
     // Merge all batches into a single batch, so we
     // can directly index into the arrays
     let single_batch = concat_batches(&schema, &batches, num_rows)?;

@@ -218,6 +218,38 @@ impl SharedMemoryByteWriter {
     }
 }
 
+pub fn map_shared_memory(file: &String) -> (*mut u8, usize) {
+    let shm_name = CString::new(file.clone()).unwrap();
+    let raw_fd = unsafe {
+        libc::shm_open(
+            shm_name.as_ptr(),
+            libc::O_RDWR,
+            libc::S_IRUSR | libc::S_IWUSR,
+        )
+    };
+    if raw_fd < 0 {
+        panic!("Failed to create shared memory");
+    }
+
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(raw_fd, &mut stat) } < 0 {
+        panic!("Failed to get shared memory size");
+    }
+
+    let shm_ptr = unsafe {
+        libc::mmap(
+            null_mut(),
+            stat.st_size as usize,
+            libc::PROT_READ | libc::PROT_WRITE,
+            libc::MAP_SHARED,
+            raw_fd,
+            0,
+        )
+    } as *mut u8;
+
+    (shm_ptr, stat.st_size as usize)
+}
+
 pub struct SharedMemoryFileWriter {
     pub path: String,
     pub num_batches: u64,

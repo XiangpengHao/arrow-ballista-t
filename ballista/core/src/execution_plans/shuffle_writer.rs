@@ -33,9 +33,10 @@ use std::time::Instant;
 
 use crate::execution_plans::join_utils::JoinHashMap;
 use crate::execution_plans::rm_writer::{
-    BuffedDirectWriter, SharedMemoryByteWriter, SharedMemoryFileWriter, MemoryReader, NoBufReader,
+    BuffedDirectWriter, MemoryReader, NoBufReader, SharedMemoryByteWriter,
+    SharedMemoryFileWriter,
 };
-use crate::utils::{self, RemoteMemoryMode, JoinInputSide};
+use crate::utils::{self, JoinInputSide, RemoteMemoryMode};
 
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
@@ -585,7 +586,7 @@ async fn execute_memory_based_remote_shuffle_write(
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
                 ht_bucket_mask: 0,
                 ht_growth_left: 0,
-                ht_items:0,
+                ht_items: 0,
             }])
         }
 
@@ -670,8 +671,8 @@ async fn execute_memory_based_remote_shuffle_write(
                             num_bytes: w.num_bytes,
                             physical_bytes: physical_size as u64,
                             ht_bucket_mask: 0,
-                            ht_growth_left:0,
-                            ht_items:0,
+                            ht_growth_left: 0,
+                            ht_items: 0,
                         });
                     }
                     None => {}
@@ -684,7 +685,6 @@ async fn execute_memory_based_remote_shuffle_write(
         Some(Partitioning::RoundRobinBatch(num_output_partitions)) => {
             // RounRobin partition happens when we deal with RHS join input.
             // (FYI, the LHS join input will build the hash table)
-
 
             // we won't necessary produce output for every possible partition, so we
             // create writers on demand
@@ -765,8 +765,8 @@ async fn execute_memory_based_remote_shuffle_write(
                             num_bytes: w.num_bytes,
                             physical_bytes: physical_size as u64,
                             ht_bucket_mask: 0,
-                            ht_growth_left:0,
-                            ht_items:0,
+                            ht_growth_left: 0,
+                            ht_items: 0,
                         });
                     }
                     None => {}
@@ -833,12 +833,12 @@ async fn execute_join_on_remote_shuffle_write(
                 num_bytes: stats.num_bytes.unwrap_or(0),
                 physical_bytes: stats.physical_bytes.unwrap_or(0),
                 ht_bucket_mask: 0,
-                ht_growth_left:0,
+                ht_growth_left: 0,
                 ht_items: 0,
             }])
         }
 
-        Some(Partitioning::Hash(exprs, _num_output_partitions)) => {
+        Some(Partitioning::Hash(exprs, num_output_partitions)) => {
             let mut idt = path.clone();
             idt.push_str(&format!("-jointable-data-{input_partition}"));
 
@@ -853,7 +853,6 @@ async fn execute_join_on_remote_shuffle_write(
                 estimated_size_per_partition,
             )?;
 
-        
             let mut total_row_cnt = 0;
 
             while let Some(result) = stream.next().await {
@@ -864,7 +863,6 @@ async fn execute_join_on_remote_shuffle_write(
                 writer.write(&input_batch)?;
             }
 
-
             writer.finish()?;
 
             let physical_bytes = writer.get_physical_written_bytes();
@@ -874,10 +872,8 @@ async fn execute_join_on_remote_shuffle_write(
                     writer.num_batches,
                     writer.num_rows,
                     writer.num_bytes,
-                    physical_bytes 
+                    physical_bytes
                 );
-
-    
 
             log::warn!("shuffle write metrics: {:?}", write_metrics);
 
@@ -890,7 +886,7 @@ async fn execute_join_on_remote_shuffle_write(
 
             let mut hashmap = JoinHashMap::with_capacity(total_row_cnt, idt);
 
-            for b in reader{
+            for b in reader {
                 let input_batch = b?;
                 hashes_buffer.clear();
                 hashes_buffer.resize(input_batch.num_rows(), 0);
@@ -898,7 +894,9 @@ async fn execute_join_on_remote_shuffle_write(
                 let key_values = exprs
                     .iter()
                     .map(|c| {
-                        Ok(c.evaluate(&input_batch)?.into_array(input_batch.num_rows()).unwrap())
+                        Ok(c.evaluate(&input_batch)?
+                            .into_array(input_batch.num_rows())
+                            .unwrap())
                     })
                     .collect::<Result<Vec<_>>>()?;
 
@@ -932,7 +930,7 @@ async fn execute_join_on_remote_shuffle_write(
 
             let ht_raw_parts = hashmap.into_raw_parts();
 
-           Ok( vec![ShuffleWritePartition {
+            let part0 = ShuffleWritePartition {
                 partition_id: 0,
                 path: writer.identifier().to_owned(),
                 num_batches: writer.num_batches,
@@ -942,7 +940,17 @@ async fn execute_join_on_remote_shuffle_write(
                 ht_bucket_mask: ht_raw_parts.1 as u64,
                 ht_growth_left: ht_raw_parts.2 as u64,
                 ht_items: ht_raw_parts.3 as u64,
-            }])
+            };
+
+            let mut partitions = Vec::with_capacity(num_output_partitions);
+
+            for i in 0..num_output_partitions as u64 {
+                let mut p = part0.clone();
+                p.partition_id = i;
+                partitions.push(p);
+            }
+
+            Ok(partitions)
         }
 
         Some(Partitioning::RoundRobinBatch(_num_output_partitions)) => {
@@ -993,7 +1001,7 @@ impl ExecutionPlan for ShuffleWriterExec {
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
             self.remote_mode,
-            self.join_input_side
+            self.join_input_side,
         )?))
     }
 
@@ -1046,7 +1054,7 @@ impl ExecutionPlan for ShuffleWriterExec {
                     Box::new(physical_bytes_builder),
                     Box::new(ht_bucket_mask_builder),
                     Box::new(ht_growth_left_builder),
-                    Box::new(ht_items_builder)
+                    Box::new(ht_items_builder),
                 ];
                 let mut stats_builder = StructBuilder::new(
                     PartitionStats::default().arrow_struct_fields(),
@@ -1079,7 +1087,7 @@ impl ExecutionPlan for ShuffleWriterExec {
         Some(self.metrics.clone_inner())
     }
 
-    fn statistics(&self) -> Result< Statistics> {
+    fn statistics(&self) -> Result<Statistics> {
         self.plan.statistics()
     }
 }
@@ -1139,7 +1147,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
             RemoteMemoryMode::default(),
-            JoinInputSide::NotApplicable
+            JoinInputSide::NotApplicable,
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)
@@ -1200,7 +1208,7 @@ mod tests {
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
             RemoteMemoryMode::default(),
-            JoinInputSide::NotApplicable
+            JoinInputSide::NotApplicable,
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)

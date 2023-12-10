@@ -150,8 +150,6 @@ impl ExecutionPlan for ShuffleReaderExec {
         let task_id = context.task_id().unwrap_or_else(|| partition.to_string());
         info!("ShuffleReaderExec::execute({})", task_id);
 
-        log::warn!("ShuffleReader: partition:{:?}", self.partition[partition]);
-
         // TODO make the maximum size configurable, or make it depends on global memory control
         let max_request_num = 50usize;
         let mut partition_locations = HashMap::new();

@@ -215,7 +215,25 @@ impl DistributedPlanner {
                                 )?;
                             let unresolved_shuffle = create_unresolved_shuffle(
                                 shuffle_writer.as_ref(),
-                                self.remote_memory_mode,
+                                RemoteMemoryMode::MemoryBasedShuffle,
+                            );
+                            stages.push(shuffle_writer);
+                            Ok((unresolved_shuffle, stages))
+                        }
+                        (Partitioning::Hash(_, _), JoinInputSide::NotApplicable) => {
+                            // Meaning that this repartition is not caused by hash join, maybe caused by aggregate?
+                            let shuffle_writer: Arc<ShuffleWriterExec> =
+                                create_shuffle_writer(
+                                    job_id,
+                                    self.next_stage_id(),
+                                    children[0].clone(),
+                                    Some(repart.partitioning().to_owned()),
+                                    RemoteMemoryMode::MemoryBasedShuffle,
+                                    join_input_side,
+                                )?;
+                            let unresolved_shuffle = create_unresolved_shuffle(
+                                shuffle_writer.as_ref(),
+                                RemoteMemoryMode::MemoryBasedShuffle,
                             );
                             stages.push(shuffle_writer);
                             Ok((unresolved_shuffle, stages))

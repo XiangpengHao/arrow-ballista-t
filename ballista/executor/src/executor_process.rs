@@ -52,6 +52,7 @@ use ballista_core::serde::protobuf::{
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::{
     create_grpc_client_connection, create_grpc_server, with_object_store_provider,
+    CustomTime,
 };
 use ballista_core::BALLISTA_VERSION;
 
@@ -150,11 +151,13 @@ pub async fn start_executor_process(opt: Arc<ExecutorProcessConfig>) -> Result<(
     } else {
         // Console layer
         tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_thread_names(opt.print_thread_info)
-            .with_thread_ids(opt.print_thread_info)
+            .with_ansi(true)
+            .with_thread_names(false)
+            .with_thread_ids(false)
             .with_writer(io::stdout)
             .with_env_filter(log_filter)
+            .with_target(false)
+            .with_timer(CustomTime)
             .init();
     }
 

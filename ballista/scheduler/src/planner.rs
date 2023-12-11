@@ -103,6 +103,7 @@ impl DistributedPlanner {
 
         if let Some(hash_join) = execution_plan.as_any().downcast_ref::<RMHashJoinExec>()
         {
+            // join side producer
             let (left_child, mut left_stages) = self.plan_query_stages_internal(
                 job_id,
                 hash_join.left().clone(),
@@ -119,6 +120,19 @@ impl DistributedPlanner {
             children.push(right_child);
             stages.append(&mut right_stages);
         } else {
+            let mut join_input_side = join_input_side;
+
+            if let Some(repart) =
+                execution_plan.as_any().downcast_ref::<RepartitionExec>()
+            {
+                // join side consumer
+                let output_partition = repart.partitioning();
+
+                if matches!(output_partition, Partitioning::Hash(_, _)) {
+                    join_input_side = JoinInputSide::NotApplicable;
+                }
+            }
+
             for child in execution_plan.children() {
                 let (new_child, mut child_stages) = self.plan_query_stages_internal(
                     job_id,
@@ -201,15 +215,14 @@ impl DistributedPlanner {
                             stages.push(shuffle_writer);
                             Ok((unresolved_shuffle, stages))
                         }
-                        (Partitioning::Hash(_, _), JoinInputSide::Right) => {
-                            // TODO: should do round robin partitioning here.
-                            // let new_part = Partitioning::RoundRobinBatch(h_part_size);
+                        (Partitioning::Hash(_, h_part_size), JoinInputSide::Right) => {
+                            let new_part = Partitioning::RoundRobinBatch(h_part_size);
                             let shuffle_writer: Arc<ShuffleWriterExec> =
                                 create_shuffle_writer(
                                     job_id,
                                     self.next_stage_id(),
                                     children[0].clone(),
-                                    Some(repart.partitioning().to_owned()),
+                                    Some(new_part),
                                     RemoteMemoryMode::MemoryBasedShuffle,
                                     join_input_side,
                                 )?;

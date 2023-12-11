@@ -57,6 +57,7 @@ libc = "0.2.150"
 log = "0.4"
 object_store = { workspace = true }
 once_cell = "1.18.0"
+tracing-subscriber = { workspace = true }
 
 douhua = { git = "https://github.com/XiangpengHao/douhua.git", branch = "numa" }
 

@@ -22,30 +22,30 @@ services:
       command: /bin/sleep infinity
       ipc: "shareable"
       shm_size: '20gb'
-  ballista-scheduler:
+  scheduler:
     image: ballista-scheduler
     build:
       dockerfile: dev/docker/ballista-scheduler.Dockerfile
       context: .
-    command: "--bind-host 0.0.0.0 --external-host ballista-scheduler"
+    command: "--bind-host 0.0.0.0 --external-host scheduler"
     ports:
       - "80:80"
       - "50050:50050"
     environment:
-      - RUST_LOG=ballista=debug
+      - RUST_LOG=ballista=info
     volumes:
       - ./benchmarks/data:/data
     healthcheck:
-      test: ["CMD", "nc", "-z", "ballista-scheduler", "50050"]
+      test: ["CMD", "nc", "-z", "scheduler", "50050"]
       interval: 5s
       timeout: 5s
       retries: 5
-  ballista-executor:
+  executor:
     image: ballista-executor
     build:
       dockerfile: dev/docker/ballista-executor.Dockerfile
       context: .
-    command: "--bind-host 0.0.0.0 --scheduler-host ballista-scheduler --scheduler-connect-timeout-seconds 15 --work-dir /tpch-data"
+    command: "--bind-host 0.0.0.0 --scheduler-host scheduler --scheduler-connect-timeout-seconds 15 --work-dir /tpch-data"
     deploy:
       replicas: 2
     restart: always
@@ -56,14 +56,14 @@ services:
     ipc: "service:ipc-provider"
     shm_size: 20gb
     depends_on:
-      - ballista-scheduler
+      - scheduler
       - ipc-provider
     healthcheck:
       test: ["CMD", "nc", "-z", "ballista-executor", "50051"]
       interval: 5s
       timeout: 5s
       retries: 5
-  ballista-client:
+  client:
     image: ballista-benchmarks
     build:
       dockerfile: dev/docker/ballista-benchmarks.Dockerfile
@@ -76,5 +76,5 @@ services:
     volumes:
       - ./benchmarks/data:/data
     depends_on:
-      - ballista-scheduler
-      - ballista-executor
+      - scheduler
+      - executor

@@ -25,6 +25,7 @@ use anyhow::Result;
 use crate::config::{Config, ResultExt};
 use ballista_core::config::LogRotationPolicy;
 use ballista_core::print_version;
+use ballista_core::utils::CustomTime;
 use ballista_scheduler::cluster::BallistaCluster;
 use ballista_scheduler::config::SchedulerConfig;
 use ballista_scheduler::scheduler_process::start_server;
@@ -92,11 +93,13 @@ async fn main() -> Result<()> {
     } else {
         // Console layer
         tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_thread_names(print_thread_info)
-            .with_thread_ids(print_thread_info)
+            .with_ansi(true)
+            .with_thread_names(false)
+            .with_thread_ids(false)
             .with_writer(io::stdout)
             .with_env_filter(log_filter)
+            .with_timer(CustomTime)
+            .with_target(false)
             .init();
     }
 

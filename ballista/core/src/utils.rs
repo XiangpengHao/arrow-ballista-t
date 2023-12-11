@@ -547,3 +547,23 @@ impl FromStr for RemoteMemoryMode {
         }
     }
 }
+
+use tracing_subscriber::fmt::{format::Writer, time::FormatTime};
+
+pub struct CustomTime;
+
+impl FormatTime for CustomTime {
+    fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+        let now = SystemTime::now();
+        let since_the_epoch =
+            now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+
+        write!(
+            w,
+            "{:02}:{:02}:{:02}",
+            since_the_epoch.as_secs() / 3600 % 24,
+            since_the_epoch.as_secs() / 60 % 60,
+            since_the_epoch.as_secs() % 60
+        )
+    }
+}

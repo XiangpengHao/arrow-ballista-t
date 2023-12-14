@@ -524,7 +524,6 @@ async fn execute_conventional_shuffle_write(
                     None => {}
                 }
             }
-            log::warn!("shuffle write metrics: {:?}", write_metrics);
             Ok(part_locs)
         }
 
@@ -678,7 +677,6 @@ async fn execute_memory_based_remote_shuffle_write(
                     None => {}
                 }
             }
-            log::warn!("shuffle write metrics: {:?}", write_metrics);
             Ok(part_locs)
         }
 
@@ -772,7 +770,6 @@ async fn execute_memory_based_remote_shuffle_write(
                     None => {}
                 }
             }
-            log::warn!("shuffle write metrics: {:?}", write_metrics);
             Ok(part_locs)
         }
 
@@ -874,8 +871,6 @@ async fn execute_join_on_remote_shuffle_write(
                     writer.num_bytes,
                     physical_bytes
                 );
-
-            log::warn!("shuffle write metrics: {:?}", write_metrics);
 
             let reader = MemoryReader::new(writer.writer.writer.ptr, physical_bytes);
             let reader = NoBufReader::try_new(reader, None).unwrap();
@@ -1102,9 +1097,10 @@ impl DisplayAs for ShuffleWriterExec {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 write!(
                     f,
-                    "ShuffleWriterExec: {:?}, mode: {:?}",
+                    "ShuffleWriterExec: {:?}, mode: {:?}, side: {:?}",
                     self.shuffle_output_partitioning,
-                    self.remote_memory_mode()
+                    self.remote_memory_mode(),
+                    self.join_input_side()
                 )
             }
         }

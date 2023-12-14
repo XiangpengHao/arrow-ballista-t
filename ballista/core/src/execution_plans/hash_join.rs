@@ -40,7 +40,7 @@ use datafusion::physical_plan::{
     hash_utils::create_hashes,
     joins::utils::{
         adjust_right_output_partitioning, build_join_schema, check_join_is_valid,
-        partitioned_join_output_partitioning, ColumnIndex, JoinFilter, JoinOn,
+        ColumnIndex, JoinFilter, JoinOn,
     },
     metrics::{ExecutionPlanMetricsSet, MetricsSet},
     DisplayFormatType, Distribution, ExecutionPlan, Partitioning, PhysicalExpr,
@@ -334,12 +334,24 @@ impl ExecutionPlan for RMHashJoinExec {
                     self.right.output_partitioning().partition_count(),
                 ),
             },
-            PartitionMode::Partitioned => partitioned_join_output_partitioning(
-                self.join_type,
-                self.left.output_partitioning(),
-                self.right.output_partitioning(),
-                left_columns_len,
-            ),
+            PartitionMode::Partitioned => {
+                //     partitioned_join_output_partitioning(
+                //     self.join_type,
+                //     self.left.output_partitioning(),
+                //     self.right.output_partitioning(),
+                //     left_columns_len,
+                // )
+
+                // Xiangpeng: In this mode, LHS build entire hash table, RHS is round robobin parition.
+                let right_part = self.right.output_partitioning();
+
+                let part_size = match right_part {
+                    Partitioning::Hash(_, s) => s,
+                    Partitioning::RoundRobinBatch(s) => s,
+                    Partitioning::UnknownPartitioning(s) => s,
+                };
+                Partitioning::RoundRobinBatch(part_size)
+            }
             PartitionMode::Auto => Partitioning::UnknownPartitioning(
                 self.right.output_partitioning().partition_count(),
             ),

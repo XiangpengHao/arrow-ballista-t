@@ -153,12 +153,12 @@ impl DistributedPlanner {
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
-                self.remote_memory_mode,
+                RemoteMemoryMode::DoNotUse,
                 JoinInputSide::NotApplicable,
             )?;
             let unresolved_shuffle = create_unresolved_shuffle(
                 shuffle_writer.as_ref(),
-                self.remote_memory_mode,
+                RemoteMemoryMode::DoNotUse,
             );
             stages.push(shuffle_writer);
             Ok((
@@ -175,12 +175,12 @@ impl DistributedPlanner {
                 self.next_stage_id(),
                 children[0].clone(),
                 None,
-                self.remote_memory_mode,
+                RemoteMemoryMode::DoNotUse,
                 JoinInputSide::NotApplicable,
             )?;
             let unresolved_shuffle = create_unresolved_shuffle(
                 shuffle_writer.as_ref(),
-                self.remote_memory_mode,
+                RemoteMemoryMode::DoNotUse,
             );
             stages.push(shuffle_writer);
             Ok((

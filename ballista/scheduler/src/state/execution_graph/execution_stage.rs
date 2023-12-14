@@ -21,12 +21,9 @@ use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 use ballista_core::serde::protobuf::failed_task::FailedReason;
-use datafusion::physical_optimizer::join_selection::JoinSelection;
-use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{ExecutionPlan, Metric};
-use datafusion::prelude::SessionConfig;
 use log::{debug, warn};
 
 use ballista_core::error::{BallistaError, Result};
@@ -326,9 +323,11 @@ impl UnresolvedStage {
             &input_locations,
         )?;
 
+        // You can't switch join order here because it breaks the join-on-remote remote memory mode.
+
         // Optimize join order based on new resolved statistics
-        let optimize_join = JoinSelection::new();
-        let plan = optimize_join.optimize(plan, SessionConfig::default().options())?;
+        // let optimize_join = JoinSelection::new();
+        // let plan = optimize_join.optimize(plan, SessionConfig::default().options())?;
 
         Ok(ResolvedStage::new(
             self.stage_id,

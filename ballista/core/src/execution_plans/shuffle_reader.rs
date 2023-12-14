@@ -172,7 +172,12 @@ impl ExecutionPlan for ShuffleReaderExec {
         if partition_locations.len() > 0
             && matches!(self.remote_mode, RemoteMemoryMode::JoinOnRemote)
         {
-            assert_eq!(partition_locations.len(), 1);
+            if partition_locations.len() > 1 {
+                panic!(
+                    "JoinOnRemote partition locations should be 1, but got {:?}",
+                    partition_locations
+                );
+            }
             let mut join_state = JOIN_STATE.lock().unwrap();
             let loc = partition_locations.first().unwrap();
             let has_ht = loc.partition_stats.ht_items.unwrap() > 0;

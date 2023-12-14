@@ -23,7 +23,7 @@ use datafusion::datasource::source_as_provider;
 use datafusion::error::DataFusionError;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanVisitor};
 use std::any::type_name;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -458,6 +458,25 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     }
 }
 
+// Find a pattern where the hash table's left input data has no partitioning, i.e., only on partition input.
+struct SingleLeftHandInputVisitor {}
+
+impl ExecutionPlanVisitor for SingleLeftHandInputVisitor {
+    type Error = ();
+
+    fn pre_visit(
+        &mut self,
+        plan: &dyn ExecutionPlan,
+    ) -> std::prelude::v1::Result<bool, Self::Error> {
+        if plan.as_any().downcast_ref::<HashJoinExec>().is_some()
+            || plan.as_any().downcast_ref::<RMHashJoinExec>().is_some()
+        {
+            return Err(());
+        }
+        Ok(true)
+    }
+}
+
 struct JoinUseRemoteMemoryRule {
     mode: RemoteMemoryMode,
 }
@@ -479,6 +498,17 @@ impl PhysicalOptimizerRule for JoinUseRemoteMemoryRule {
                     match partition_mode {
                         PartitionMode::Partitioned => {
                             let left = hash_join.left();
+
+                            let mut visitor = SingleLeftHandInputVisitor {};
+                            let ok = datafusion::physical_plan::accept(
+                                left.as_ref(),
+                                &mut visitor,
+                            );
+
+                            if !ok.is_ok() {
+                                return Ok(Transformed::No(p));
+                            }
+
                             let right = hash_join.right();
 
                             let new_join = RMHashJoinExec::try_new(
